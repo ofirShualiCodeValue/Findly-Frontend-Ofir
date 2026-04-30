@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../api/auth_api.dart';
 import '../../api/client.dart';
 import '../../store/auth_store.dart';
+import '../../theme.dart';
+import '../../widgets/findly_logo.dart';
+import '../../widgets/gradient_background.dart';
+import '../employer/home.dart';
+import '../employee/home.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String phone;
@@ -20,9 +26,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.devCode != null) {
-      _codeCtrl.text = widget.devCode!;
-    }
+    if (widget.devCode != null) _codeCtrl.text = widget.devCode!;
   }
 
   Future<void> _verify() async {
@@ -41,6 +45,22 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
         result['token'] as String,
         Map<String, dynamic>.from(result['user']),
       );
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) {
+            switch (authStore.role) {
+              case 'employer':
+                return const EmployerHomeScreen();
+              case 'employee':
+                return const EmployeeHomeScreen();
+              default:
+                return const SizedBox.shrink();
+            }
+          },
+        ),
+        (route) => false,
+      );
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
@@ -53,65 +73,97 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('אימות קוד')),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 24),
-              Text('שלחנו קוד אימות ל-${widget.phone}',
-                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
-              if (widget.devCode != null) ...[
-                const SizedBox(height: 12),
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: BrandGradientBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                const SizedBox(height: 24),
+                const FindlyLogo(fontSize: 40),
+                const SizedBox(height: 32),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.white.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8)),
+                    ],
                   ),
-                  child: Text('🛠️ DEV: הקוד ${widget.devCode} (חזר מהשרת)',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('אימות קוד',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.heebo(fontSize: 22, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Text('שלחנו קוד ל-${widget.phone}',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.heebo(fontSize: 14, color: FindlyColors.textSecondary)),
+                      if (widget.devCode != null) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF3D6),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text('🛠️ DEV: ${widget.devCode}',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.heebo(fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      TextField(
+                        controller: _codeCtrl,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.heebo(fontSize: 28, letterSpacing: 12, fontWeight: FontWeight.w700),
+                        maxLength: 6,
+                        decoration: const InputDecoration(
+                          counterText: '',
+                          hintText: '------',
+                        ),
+                      ),
+                      if (_error != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: FindlyColors.warningRed.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(_error!,
+                              style: const TextStyle(color: FindlyColors.warningRed),
+                              textAlign: TextAlign.center),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: _loading ? null : _verify,
+                        child: _loading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('אישור והיכנס'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
-              const SizedBox(height: 32),
-              TextField(
-                controller: _codeCtrl,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 32, letterSpacing: 8),
-                maxLength: 6,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: '------',
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (_error != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
-                ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _loading ? null : _verify,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: _loading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('אישור והיכנס', style: TextStyle(fontSize: 16)),
-              ),
-            ],
+            ),
           ),
         ),
       ),
