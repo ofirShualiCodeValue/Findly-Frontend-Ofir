@@ -45,6 +45,8 @@ class _EmployerProfileScreenState extends State<EmployerProfileScreen> {
       });
     } on ApiException catch (e) {
       setState(() => _error = e.message);
+    } catch (e) {
+      setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -76,10 +78,10 @@ class _EmployerProfileScreenState extends State<EmployerProfileScreen> {
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    if (_error != null) {
+    if (_error != null || _profile == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('המוביל שלי')),
-        body: ErrorView(message: _error!, onRetry: _load),
+        body: ErrorView(message: _error ?? 'נכשל לטעון פרופיל', onRetry: _load),
       );
     }
     final business = _profile!['business'] as Map<String, dynamic>?;

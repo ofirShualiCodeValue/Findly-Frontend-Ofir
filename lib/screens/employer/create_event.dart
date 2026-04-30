@@ -6,6 +6,33 @@ import '../../api/employer_api.dart';
 import '../../theme.dart';
 import '../../widgets/confirm_modal.dart';
 
+/// Common Israeli event venues — used as autocomplete suggestions while
+/// the user types a venue. Free-form input is also accepted.
+const List<String> _venueSuggestions = [
+  'אולמי האחוזה, ראשון לציון',
+  'היכל מנחם בגין, רמת גן',
+  'מנורה מבטחים ארנה, תל אביב',
+  'מתחם רידינג, תל אביב',
+  'היכל התרבות, תל אביב',
+  'הפעמון, רמת גן',
+  'ארמונות חן, נהריה',
+  'אולמי כפר המכביה, רמת גן',
+  'מתחם פאוור פארק, חיפה',
+  'מצודת דוד, ירושלים',
+  'גני התערוכה, תל אביב',
+  'מתחם ארנה, חיפה',
+  'יד אליהו, תל אביב',
+  'גני יהושע, תל אביב',
+  'נמל תל אביב',
+  'נמל יפו',
+  'מתחם הסינמטק, ירושלים',
+  'אולם בלומפילד, ירושלים',
+  'בנייני האומה, ירושלים',
+  'מתחם אירועים עין גדי',
+  'גני עירייה, נתניה',
+  'אולם פעמונים, ראשון לציון',
+];
+
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
 
@@ -20,8 +47,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   final _description = TextEditingController();
   final _budget = TextEditingController();
   final _required = TextEditingController(text: '1');
-  DateTime? _startAt;
-  DateTime? _endAt;
+  DateTime? _date; // single date — exact times come from shifts later
   int? _categoryId;
   int? _areaId;
   bool _saving = false;
@@ -55,8 +81,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     }
   }
 
-  Future<void> _pickDate({required bool isStart}) async {
-    final base = isStart ? (_startAt ?? DateTime.now()) : (_endAt ?? _startAt ?? DateTime.now());
+  Future<void> _pickDate() async {
+    final base = _date ?? DateTime.now();
     final date = await showDatePicker(
       context: context,
       initialDate: base,
@@ -64,29 +90,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
     );
     if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(base),
-    );
-    if (time == null) return;
-    setState(() {
-      final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-      if (isStart) {
-        _startAt = dt;
-      } else {
-        _endAt = dt;
-      }
-    });
+    setState(() => _date = DateUtils.dateOnly(date));
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_startAt == null || _endAt == null || _categoryId == null || _areaId == null) {
-      setState(() => _error = 'יש למלא את כל השדות');
-      return;
-    }
-    if (!_endAt!.isAfter(_startAt!)) {
-      setState(() => _error = 'שעת סיום חייבת להיות אחרי שעת התחלה');
+    if (_date == null || _categoryId == null || _areaId == null) {
+      setState(() => _error = 'יש למלא תאריך, סוג אירוע ואזור');
       return;
     }
     setState(() {
@@ -94,14 +104,20 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       _error = null;
     });
     try {
+      // Real start/end times will be set by shifts later. For now we mark the
+      // event as spanning the whole calendar day so backend's start<end check
+      // passes and the home calendar shows it on the correct day.
+      final dayStart = DateTime(_date!.year, _date!.month, _date!.day, 0, 0, 0);
+      final dayEnd = DateTime(_date!.year, _date!.month, _date!.day, 23, 59, 0);
+
       await EmployerApi.createEvent({
         'name': _name.text.trim(),
         'venue': _venue.text.trim().isEmpty ? null : _venue.text.trim(),
         'description': _description.text.trim().isEmpty ? null : _description.text.trim(),
         'event_category_id': _categoryId,
         'activity_area_id': _areaId,
-        'start_at': _startAt!.toIso8601String(),
-        'end_at': _endAt!.toIso8601String(),
+        'start_at': dayStart.toIso8601String(),
+        'end_at': dayEnd.toIso8601String(),
         'budget': double.tryParse(_budget.text.trim()) ?? 0,
         'required_employees': int.tryParse(_required.text.trim()) ?? 1,
         'status': 'active',
@@ -132,7 +148,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     if (_loadingTaxonomies) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'he');
+    final df = DateFormat('EEEE, d בMMMM yyyy', 'he');
     return Scaffold(
       appBar: AppBar(
         title: const Text('יצירת אירוע חדש'),
@@ -146,6 +162,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             Text('בואו נתחיל להקים את האירוע שלך',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.heebo(color: FindlyColors.textSecondary, fontSize: 13)),
+            const SizedBox(height: 4),
+            Text('שעות מדויקות יוגדרו בהמשך כשתוסיף משמרות',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.heebo(color: FindlyColors.textSecondary, fontSize: 11)),
             const SizedBox(height: 20),
             _Field(
               label: 'שם האירוע',
@@ -159,29 +179,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               label: 'תאריך האירוע',
               icon: Icons.calendar_today_rounded,
               child: InkWell(
-                onTap: () => _pickDate(isStart: true),
-                child: InputDecorator(
-                  decoration: InputDecoration(hintText: _startAt != null ? df.format(_startAt!) : 'בחר תאריך התחלה'),
-                  child: Text(
-                    _startAt != null ? df.format(_startAt!) : 'בחר תאריך התחלה',
-                    style: GoogleFonts.heebo(
-                      color: _startAt == null ? FindlyColors.textSecondary : FindlyColors.textPrimary,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            _Field(
-              label: 'תאריך סיום',
-              icon: Icons.event_rounded,
-              child: InkWell(
-                onTap: () => _pickDate(isStart: false),
+                onTap: _pickDate,
                 child: InputDecorator(
                   decoration: const InputDecoration(),
                   child: Text(
-                    _endAt != null ? df.format(_endAt!) : 'בחר תאריך סיום',
+                    _date != null ? df.format(_date!) : 'בחר תאריך',
                     style: GoogleFonts.heebo(
-                      color: _endAt == null ? FindlyColors.textSecondary : FindlyColors.textPrimary,
+                      color: _date == null ? FindlyColors.textSecondary : FindlyColors.textPrimary,
                     ),
                   ),
                 ),
@@ -190,10 +194,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             _Field(
               label: 'מקום האירוע',
               icon: Icons.place_rounded,
-              child: TextFormField(
-                controller: _venue,
-                decoration: const InputDecoration(hintText: 'מתחם / כתובת'),
-              ),
+              child: _VenueAutocomplete(controller: _venue),
             ),
             _Field(
               label: 'תקציב לאירוע',
@@ -210,6 +211,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               child: DropdownButtonFormField<int>(
                 initialValue: _categoryId,
                 decoration: const InputDecoration(hintText: 'בחר סוג אירוע'),
+                isExpanded: true,
                 items: _categories
                     .map<DropdownMenuItem<int>>((c) => DropdownMenuItem(
                           value: c['id'] as int,
@@ -225,6 +227,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               child: DropdownButtonFormField<int>(
                 initialValue: _areaId,
                 decoration: const InputDecoration(hintText: 'בחר אזור'),
+                isExpanded: true,
                 items: _areas
                     .map<DropdownMenuItem<int>>((a) => DropdownMenuItem(
                           value: a['id'] as int,
@@ -277,6 +280,60 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _VenueAutocomplete extends StatelessWidget {
+  final TextEditingController controller;
+  const _VenueAutocomplete({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return RawAutocomplete<String>(
+      textEditingController: controller,
+      focusNode: FocusNode(),
+      optionsBuilder: (TextEditingValue value) {
+        final query = value.text.trim();
+        if (query.isEmpty) return const Iterable<String>.empty();
+        return _venueSuggestions.where((v) => v.contains(query));
+      },
+      fieldViewBuilder: (_, c, fn, onSubmit) => TextFormField(
+        controller: c,
+        focusNode: fn,
+        decoration: const InputDecoration(hintText: 'התחל להקליד כתובת או שם מקום…'),
+      ),
+      optionsViewBuilder: (context, onSelected, options) {
+        return Align(
+          alignment: AlignmentDirectional.topStart,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220, maxWidth: 360),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: options.length,
+                shrinkWrap: true,
+                itemBuilder: (_, i) {
+                  final opt = options.elementAt(i);
+                  return InkWell(
+                    onTap: () => onSelected(opt),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(children: [
+                        const Icon(Icons.place_outlined, size: 18, color: FindlyColors.textSecondary),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(opt, style: GoogleFonts.heebo(fontSize: 13))),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

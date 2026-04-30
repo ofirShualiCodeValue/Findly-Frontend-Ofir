@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'screens/splash.dart';
 import 'store/auth_store.dart';
 import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Required for any DateFormat(... 'he') call — without this, Hebrew locale
+  // data is missing and DateFormat throws "Unexpected null value".
+  await initializeDateFormatting('he', null);
   await authStore.init();
   runApp(const FindlyApp());
 }
