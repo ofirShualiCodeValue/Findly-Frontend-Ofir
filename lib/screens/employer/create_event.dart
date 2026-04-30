@@ -212,6 +212,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 initialValue: _categoryId,
                 decoration: const InputDecoration(hintText: 'בחר סוג אירוע'),
                 isExpanded: true,
+                // Show ~6 items, scroll for the rest (each item ≈ 48 px).
+                menuMaxHeight: 6 * 48.0,
                 items: _categories
                     .map<DropdownMenuItem<int>>((c) => DropdownMenuItem(
                           value: c['id'] as int,
@@ -237,15 +239,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 onChanged: (v) => setState(() => _areaId = v),
               ),
             ),
-            _Field(
-              label: 'כמות עובדים נדרשים',
-              icon: Icons.group_rounded,
-              child: TextFormField(
-                controller: _required,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(hintText: '1'),
-              ),
-            ),
+            // "כמות עובדים נדרשים" intentionally omitted from the create-event
+            // form. Staffing is determined per-shift, added later in the shifts flow.
             _Field(
               label: 'תיאור אירוע',
               icon: Icons.notes_rounded,
@@ -284,15 +279,31 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
 }
 
-class _VenueAutocomplete extends StatelessWidget {
+/// Stateful so the FocusNode is stable across rebuilds. The previous
+/// stateless version created a new FocusNode every build, which made the
+/// autocomplete reset (suggestions only worked on the first character).
+class _VenueAutocomplete extends StatefulWidget {
   final TextEditingController controller;
   const _VenueAutocomplete({required this.controller});
 
   @override
+  State<_VenueAutocomplete> createState() => _VenueAutocompleteState();
+}
+
+class _VenueAutocompleteState extends State<_VenueAutocomplete> {
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return RawAutocomplete<String>(
-      textEditingController: controller,
-      focusNode: FocusNode(),
+      textEditingController: widget.controller,
+      focusNode: _focusNode,
       optionsBuilder: (TextEditingValue value) {
         final query = value.text.trim();
         if (query.isEmpty) return const Iterable<String>.empty();
