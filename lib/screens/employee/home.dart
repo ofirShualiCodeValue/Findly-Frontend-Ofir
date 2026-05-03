@@ -7,6 +7,7 @@ import '../../store/auth_store.dart';
 import '../../theme.dart';
 import '../../widgets/calendar_strip.dart';
 import '../../widgets/error_view.dart';
+import '../../widgets/findly_alert.dart';
 import '../../widgets/gradient_background.dart';
 import '../auth/phone_entry.dart';
 import '../employer/home.dart';
@@ -187,34 +188,28 @@ class _HomeFeedState extends State<_HomeFeed> {
     }
   }
 
-  Future<bool?> _showCancellationPolicyDialog(Map<String, dynamic>? data) {
+  Future<bool?> _showCancellationPolicyDialog(Map<String, dynamic>? data) async {
     final hours = (data?['hours_until_shift'] as num?)?.toDouble() ?? 0;
     final threshold = (data?['policy_threshold_hours'] as num?)?.toInt() ?? 48;
-    return showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 40),
-        title: const Text('מדיניות ביטול'),
-        content: Text(
+    final picked = await showFindlyAlert(
+      context,
+      badge: FindlyAlertBadge.icon(Icons.warning_amber_rounded),
+      title: 'מדיניות ביטול',
+      message:
           'הביטול נעשה פחות מ-$threshold שעות לפני תחילת המשמרת '
-          '(נותרו ${hours.toStringAsFixed(1)} שעות). ביטול מאוחר עלול '
-          'לפגוע בדירוג שלך אצל המעסיק. להמשיך לבטל?',
-          textAlign: TextAlign.center,
+          '(נותרו ${hours.toStringAsFixed(1)} שעות).\n'
+          'ביטול מאוחר עלול לפגוע בדירוג שלך אצל המעסיק. להמשיך לבטל?',
+      actions: const [
+        FindlyAlertAction(
+          label: 'בטל בכל זאת',
+          backgroundColor: FindlyColors.warningRed,
         ),
-        actionsAlignment: MainAxisAlignment.spaceBetween,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('להישאר במשמרת'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: FindlyColors.warningRed),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('בטל בכל זאת'),
-          ),
-        ],
-      ),
+        FindlyAlertAction(label: 'להישאר במשמרת', primary: false),
+      ],
     );
+    if (picked == 0) return true;
+    if (picked == 1) return false;
+    return null;
   }
 
   Future<void> _reportHours(Map<String, dynamic> app) async {

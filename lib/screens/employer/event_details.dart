@@ -7,6 +7,7 @@ import '../../api/shared_api.dart';
 import '../../theme.dart';
 import '../../widgets/confirm_modal.dart';
 import '../../widgets/error_view.dart';
+import '../../widgets/findly_alert.dart';
 import '../../widgets/gradient_background.dart';
 
 class EventDetailsScreen extends StatefulWidget {
@@ -1301,23 +1302,13 @@ class _CreateShiftSheetState extends State<CreateShiftSheet> {
     final min = data?['min_hours'] ?? 6;
     final max = data?['max_hours'] ?? 12;
     final actual = (data?['actual_hours'] as num?)?.toStringAsFixed(1) ?? '?';
-    await showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        icon: const Icon(Icons.error_outline_rounded, color: FindlyColors.warningRed, size: 40),
-        title: const Text('משך משמרת לא תקין'),
-        content: Text(
-          'משמרת חייבת להיות בין $min ל-$max שעות. המשמרת שהזנת היא $actual שעות.',
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('הבנתי'),
-          ),
-        ],
-      ),
+    await showFindlyAlert(
+      context,
+      badge: FindlyAlertBadge.icon(Icons.error_outline_rounded),
+      title: 'משך משמרת לא תקין',
+      message: 'משמרת חייבת להיות בין $min ל-$max שעות.\n'
+          'המשמרת שהזנת היא $actual שעות.',
+      actions: const [FindlyAlertAction(label: 'הבנתי')],
     );
   }
 

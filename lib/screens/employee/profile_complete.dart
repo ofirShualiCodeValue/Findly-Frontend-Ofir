@@ -7,6 +7,7 @@ import '../../api/employee_api.dart';
 import '../../api/shared_api.dart';
 import '../../services/location_service.dart';
 import '../../theme.dart';
+import '../../widgets/findly_alert.dart';
 import '../../widgets/gradient_background.dart';
 import 'home.dart';
 
@@ -69,13 +70,35 @@ class _ProfileCompleteScreenState extends State<ProfileCompleteScreen> {
 
   // ---------- Step transitions ----------
 
-  void _next() {
+  void _next() async {
+    // Block advancing past step 1 (basics) when the user is under 18.
+    // Doing it here — not on submit — means they don't fill out the rest of
+    // the form first.
+    if (_step == 0 && _yearOfBirth != null) {
+      final age = DateTime.now().year - _yearOfBirth!;
+      if (age < 18) {
+        await _showAgeRequirementDialog();
+        return;
+      }
+    }
     if (_step == _totalSteps - 1) {
       _submit();
       return;
     }
     setState(() => _step += 1);
     _pageCtrl.animateToPage(_step, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+  }
+
+  Future<void> _showAgeRequirementDialog() async {
+    if (!mounted) return;
+    await showFindlyAlert(
+      context,
+      badge: FindlyAlertBadge.ageBadge,
+      title: 'מצטערים אבל לא ניתן להמשיך בהרשמה',
+      message: 'Findly מיועדת בשלב זה למשתמשים מגיל 18 ומעלה.\n'
+          'נשמח לראות אותך כאן כשתגיע/י לגיל המתאים.',
+      actions: const [FindlyAlertAction(label: 'הבנתי')],
+    );
   }
 
   void _back() {
@@ -158,8 +181,9 @@ class _ProfileCompleteScreenState extends State<ProfileCompleteScreen> {
       );
     } on ApiException catch (e) {
       if (e.errorCode == 'AGE_REQUIREMENT_NOT_MET') {
-        if (mounted) await _showAgeRequirementDialog(e.data);
-        // Bounce back to step 1 (the form) so the user can fix.
+        // Should be unreachable because _next() blocks before the user
+        // gets here, but keep the safety net for the bypass case.
+        if (mounted) await _showAgeRequirementDialog();
         setState(() => _step = 0);
         _pageCtrl.jumpToPage(0);
       } else {
@@ -170,28 +194,6 @@ class _ProfileCompleteScreenState extends State<ProfileCompleteScreen> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
-  }
-
-  Future<void> _showAgeRequirementDialog(Map<String, dynamic>? data) async {
-    final minAge = data?['minimum_age'] ?? 18;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 40),
-        title: const Text('דרישת גיל'),
-        content: Text(
-          'לצערנו, השימוש ב-Findly מותר רק מגיל $minAge ומעלה.',
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('הבנתי'),
-          ),
-        ],
-      ),
-    );
   }
 
   // ---------- UI ----------

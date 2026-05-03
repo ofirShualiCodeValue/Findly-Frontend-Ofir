@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../api/auth_api.dart';
 import '../../api/client.dart';
 import '../../theme.dart';
+import '../../widgets/findly_alert.dart';
 import '../../widgets/findly_logo.dart';
 import '../../widgets/gradient_background.dart';
 import 'otp_verify.dart';
@@ -68,33 +69,20 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     final existing = data?['existing_role'] as String? ?? 'unknown';
     final existingHe = existing == 'employer' ? 'מעסיק' : 'עובד';
     final requestedHe = _role == 'employer' ? 'מעסיק' : 'עובד';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        icon: const Icon(Icons.info_outline_rounded, color: FindlyColors.brandPurple, size: 40),
-        title: const Text('המספר רשום בתפקיד אחר'),
-        content: Text(
-          'מספר הטלפון הזה כבר רשום במערכת בתור $existingHe.\n\n'
-          'כדי להירשם בתור $requestedHe — צריך מספר טלפון אחר, או למחוק את החשבון הקיים.\n\n'
-          'להתחבר בתור $existingHe?',
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.spaceBetween,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('ביטול'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text('להתחבר בתור $existingHe'),
-          ),
-        ],
-      ),
+    final picked = await showFindlyAlert(
+      context,
+      badge: FindlyAlertBadge.icon(Icons.swap_horiz_rounded),
+      title: 'המספר רשום בתפקיד אחר',
+      message: 'מספר הטלפון הזה כבר רשום במערכת בתור $existingHe.\n'
+          'כדי להירשם בתור $requestedHe — צריך מספר טלפון אחר, '
+          'או למחוק את החשבון הקיים.',
+      actions: [
+        FindlyAlertAction(label: 'להתחבר בתור $existingHe'),
+        const FindlyAlertAction(label: 'ביטול', primary: false),
+      ],
     );
-    if (ok == true && mounted) {
+    if (picked == 0 && mounted) {
       setState(() => _role = existing);
-      // Retry now that the picker matches the existing role.
       _request();
     }
   }
