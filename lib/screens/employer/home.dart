@@ -361,6 +361,7 @@ class _EventCard extends StatelessWidget {
     final end = DateTime.tryParse(event['end_at'] as String? ?? '');
     final status = event['status'] as String? ?? '';
     final cancelled = status == 'cancelled';
+    final isDraft = status == 'draft';
     final timeRange = (start != null && end != null) ? '${tf.format(start)} - ${tf.format(end)}' : '';
     final venue = event['venue'] as String? ?? '';
 
@@ -385,7 +386,8 @@ class _EventCard extends StatelessWidget {
                   top: 12,
                   bottom: 12,
                   child: Container(width: 4, decoration: BoxDecoration(
-                    color: FindlyColors.brandGreen,
+                    // Draft = orange accent, published/active = brand green.
+                    color: isDraft ? Colors.orange : FindlyColors.brandGreen,
                     borderRadius: BorderRadius.circular(4),
                   )),
                 ),
@@ -444,6 +446,15 @@ class _EventCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text('בוטל', style: GoogleFonts.heebo(color: FindlyColors.warningRed, fontSize: 11, fontWeight: FontWeight.w700)),
+                      )
+                    else if (isDraft)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text('טיוטה', style: GoogleFonts.heebo(color: Colors.orange.shade800, fontSize: 11, fontWeight: FontWeight.w700)),
                       ),
                   ],
                 ),

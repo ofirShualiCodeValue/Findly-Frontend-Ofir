@@ -124,7 +124,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         'end_at': dayEnd.toIso8601String(),
         'budget': double.tryParse(_budget.text.trim()) ?? 0,
         'required_employees': int.tryParse(_required.text.trim()) ?? 1,
-        'status': 'active',
+        // Created as a draft — invisible to workers until the employer
+        // explicitly publishes from the event details screen.
+        'status': 'draft',
       });
       if (!mounted) return;
       Navigator.pop(context, true);

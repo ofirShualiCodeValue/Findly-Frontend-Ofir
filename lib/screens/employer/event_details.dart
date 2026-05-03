@@ -58,6 +58,33 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProv
     }
   }
 
+  /// Switches a draft event to active. Once published, workers in the
+  /// matching industry sub-categories will see it in their feed.
+  Future<void> _publish() async {
+    final ok = await showConfirmModal(
+      context,
+      icon: Icons.publish_rounded,
+      title: 'לפרסם את האירוע?',
+      subtitle:
+          'לאחר הפרסום, עובדים בתחומים שמתאימים יראו את האירוע בהצעות העבודה שלהם.\n\n'
+          'ודא שכל המשמרות הוגדרו לפני הפרסום.',
+      cancelLabel: 'עוד לא',
+      confirmLabel: 'פרסם עכשיו',
+    );
+    if (!ok) return;
+    try {
+      await EmployerApi.updateEvent(widget.eventId, {'status': 'active'});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('האירוע פורסם!')),
+        );
+      }
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _cancelEvent() async {
     final ok = await showConfirmModal(
       context,
@@ -149,6 +176,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProv
     }
     final e = _event!;
     final cancelled = e['status'] == 'cancelled';
+    final isDraft = e['status'] == 'draft';
 
     return Scaffold(
       body: SurfaceGradientBackground(
@@ -219,11 +247,20 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProv
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.send_rounded),
-                  label: const Text('שליחת הודעה לעובדים'),
-                  onPressed: _sendNotification,
-                ),
+                child: isDraft
+                    // Draft → publishing is the primary action (broadcast disabled
+                    // until the event is live anyway).
+                    ? FilledButton.icon(
+                        icon: const Icon(Icons.publish_rounded),
+                        label: const Text('פרסם אירוע'),
+                        onPressed: _publish,
+                        style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade800),
+                      )
+                    : FilledButton.icon(
+                        icon: const Icon(Icons.send_rounded),
+                        label: const Text('שליחת הודעה לעובדים'),
+                        onPressed: _sendNotification,
+                      ),
               ),
             ),
     );
