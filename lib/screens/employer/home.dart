@@ -8,10 +8,17 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/error_view.dart';
 import '../../widgets/calendar_strip.dart';
 import '../../widgets/gradient_background.dart';
+import '../auth/phone_entry.dart';
+import '../employee/home.dart';
 import 'create_event.dart';
 import 'event_details.dart';
+import 'notifications.dart';
 import 'profile.dart';
 
+/// 3-tab shell for the Employer App. Strict role guard at the top —
+/// if a non-employer somehow lands here (stale session, bad routing),
+/// they're bounced back to the right destination instead of seeing
+/// employer-only UI.
 class EmployerHomeScreen extends StatefulWidget {
   const EmployerHomeScreen({super.key});
 
@@ -20,6 +27,65 @@ class EmployerHomeScreen extends StatefulWidget {
 }
 
 class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
+  int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Defensive routing — guarantees no employee ever lands here.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _enforceRole());
+  }
+
+  void _enforceRole() {
+    if (!mounted) return;
+    final role = authStore.role;
+    if (role == 'employer') return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => role == 'employee' ? const EmployeeHomeScreen() : const PhoneEntryScreen(),
+      ),
+      (_) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (authStore.role != 'employer') {
+      // Render nothing while the post-frame redirect runs.
+      return const SizedBox.shrink();
+    }
+    return Scaffold(
+      body: IndexedStack(
+        index: _tab,
+        children: const [
+          _EventsTab(),
+          EmployerNotificationsTab(),
+          EmployerProfileScreen(),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.event_rounded), label: 'האירועים שלי'),
+          NavigationDestination(icon: Icon(Icons.notifications_rounded), label: 'עדכונים'),
+          NavigationDestination(icon: Icon(Icons.person_rounded), label: 'פרופיל'),
+        ],
+      ),
+    );
+  }
+}
+
+/// Calendar strip + per-day events list + the prominent "Create Event"
+/// CTAs (FAB at the bottom + a contextual "add for {day}" inline button).
+class _EventsTab extends StatefulWidget {
+  const _EventsTab();
+
+  @override
+  State<_EventsTab> createState() => _EventsTabState();
+}
+
+class _EventsTabState extends State<_EventsTab> {
   late Future<List<dynamic>> _eventsFuture;
   DateTime _selectedDate = DateUtils.dateOnly(DateTime.now());
 
@@ -53,6 +119,7 @@ class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       body: SurfaceGradientBackground(
         topGradientHeight: 360,
         child: SafeArea(
@@ -120,8 +187,6 @@ class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (_, i) {
                           if (i == filtered.length) {
-                            // Trailing CTA so the user can add another event
-                            // for the same day without scrolling for the FAB.
                             return Padding(
                               padding: const EdgeInsets.only(top: 4),
                               child: OutlinedButton.icon(
@@ -176,17 +241,6 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Row(
         children: [
-          IconButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const EmployerProfileScreen()),
-            ),
-            icon: _circleIcon(Icons.person_outline),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: _circleIcon(Icons.notifications_outlined),
-          ),
           const Spacer(),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -204,19 +258,6 @@ class _Header extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _circleIcon(IconData icon) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
-      ),
-      child: Icon(icon, color: FindlyColors.textPrimary, size: 20),
     );
   }
 }

@@ -8,6 +8,8 @@ import '../../theme.dart';
 import '../../widgets/calendar_strip.dart';
 import '../../widgets/error_view.dart';
 import '../../widgets/gradient_background.dart';
+import '../auth/phone_entry.dart';
+import '../employer/home.dart';
 import 'notifications.dart';
 import 'profile_tab.dart';
 
@@ -22,7 +24,30 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
   int _bottomTab = 0;
 
   @override
+  void initState() {
+    super.initState();
+    // Defensive routing — guarantees no employer ever lands here.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _enforceRole());
+  }
+
+  void _enforceRole() {
+    if (!mounted) return;
+    final role = authStore.role;
+    if (role == 'employee') return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => role == 'employer' ? const EmployerHomeScreen() : const PhoneEntryScreen(),
+      ),
+      (_) => false,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (authStore.role != 'employee') {
+      // Render nothing while the post-frame redirect runs.
+      return const SizedBox.shrink();
+    }
     return Scaffold(
       body: IndexedStack(
         index: _bottomTab,

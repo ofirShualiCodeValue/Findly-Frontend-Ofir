@@ -115,6 +115,22 @@ class EmployerApi {
     return List<dynamic>.from(r.data['data']);
   }
 
+  // ---------- Employer notifications inbox ----------
+
+  static Future<List<dynamic>> listNotifications({bool? unread}) async {
+    final r = await ApiClient.dio.get('/v1/employer/notifications', queryParameters: {
+      if (unread == true) 'unread': 'true',
+      'page_size': 100,
+    });
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return List<dynamic>.from(r.data['data']);
+  }
+
+  static Future<void> markNotificationRead(int id) async {
+    final r = await ApiClient.dio.post('/v1/employer/notifications/$id/read');
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+  }
+
   static Future<List<dynamic>> getCategories() async {
     final r = await ApiClient.dio.get('/v1/employer/categories');
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
