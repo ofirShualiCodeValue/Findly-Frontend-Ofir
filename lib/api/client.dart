@@ -39,15 +39,23 @@ class ApiClient {
 class ApiException implements Exception {
   final int? code;
   final String message;
-  ApiException(this.code, this.message);
+  final Map<String, dynamic>? data;
+  ApiException(this.code, this.message, {this.data});
+
+  /// Domain-specific error code carried under `data.code` (e.g.
+  /// "AGE_REQUIREMENT_NOT_MET"). Null for plain validation errors.
+  String? get errorCode => data?['code'] as String?;
 
   @override
   String toString() => 'ApiException($code): $message';
 
   static ApiException fromResponse(Response<dynamic> r) {
-    final data = r.data;
-    final msg = data is Map && data['message'] is String ? data['message'] as String : 'שגיאה';
-    final code = data is Map && data['code'] is int ? data['code'] as int : r.statusCode;
-    return ApiException(code, msg);
+    final body = r.data;
+    final msg = body is Map && body['message'] is String ? body['message'] as String : 'שגיאה';
+    final code = body is Map && body['code'] is int ? body['code'] as int : r.statusCode;
+    final data = body is Map && body['data'] is Map
+        ? Map<String, dynamic>.from(body['data'] as Map)
+        : null;
+    return ApiException(code, msg, data: data);
   }
 }

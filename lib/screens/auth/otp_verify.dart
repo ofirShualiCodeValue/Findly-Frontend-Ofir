@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../api/auth_api.dart';
 import '../../api/client.dart';
+import '../../api/employee_api.dart';
 import '../../store/auth_store.dart';
 import '../../theme.dart';
 import '../../widgets/findly_logo.dart';
 import '../../widgets/gradient_background.dart';
 import '../employer/home.dart';
 import '../employee/home.dart';
+import '../employee/profile_complete.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String phone;
@@ -29,6 +31,21 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     if (widget.devCode != null) _codeCtrl.text = widget.devCode!;
   }
 
+  /// Calls /v1/employee/profile and decides between home feed and the
+  /// first-time completion form. Falls back to the completion form on any
+  /// fetch failure — safer than dropping the user into a feed that will
+  /// silently filter everything out.
+  Future<Widget> _resolveEmployeeDestination() async {
+    try {
+      final profile = await EmployeeApi.getProfile();
+      final p = profile['profile'] as Map<String, dynamic>?;
+      final isComplete = p?['is_complete'] == true;
+      return isComplete ? const EmployeeHomeScreen() : const ProfileCompleteScreen();
+    } catch (_) {
+      return const ProfileCompleteScreen();
+    }
+  }
+
   Future<void> _verify() async {
     final code = _codeCtrl.text.trim();
     if (code.length < 4) {
@@ -46,19 +63,21 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
         Map<String, dynamic>.from(result['user']),
       );
       if (!mounted) return;
+
+      // Employees with an incomplete profile are routed to the completion
+      // form instead of the home feed (the matcher needs all fields set).
+      Widget destination = const SizedBox.shrink();
+      switch (authStore.role) {
+        case 'employer':
+          destination = const EmployerHomeScreen();
+          break;
+        case 'employee':
+          destination = await _resolveEmployeeDestination();
+          break;
+      }
+      if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) {
-            switch (authStore.role) {
-              case 'employer':
-                return const EmployerHomeScreen();
-              case 'employee':
-                return const EmployeeHomeScreen();
-              default:
-                return const SizedBox.shrink();
-            }
-          },
-        ),
+        MaterialPageRoute(builder: (_) => destination),
         (route) => false,
       );
     } on ApiException catch (e) {

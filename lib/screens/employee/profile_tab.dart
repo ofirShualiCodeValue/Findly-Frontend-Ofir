@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../store/auth_store.dart';
 import '../../theme.dart';
 import '../../widgets/gradient_background.dart';
+import 'profile_details.dart';
 
 class EmployeeProfileTab extends StatelessWidget {
   const EmployeeProfileTab({super.key});
@@ -29,7 +30,13 @@ class EmployeeProfileTab extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             _SettingsCard(children: [
-              _Row(icon: Icons.person_outline, label: 'פרטים אישיים', onTap: () {}),
+              _Row(
+                icon: Icons.person_outline,
+                label: 'פרטים אישיים',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ProfileDetailsScreen()),
+                ),
+              ),
               _Row(icon: Icons.notifications_outlined, label: 'התראות', onTap: () {}),
               _Row(icon: Icons.lock_outline, label: 'אבטחה', onTap: () {}),
             ]),

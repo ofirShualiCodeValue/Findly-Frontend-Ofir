@@ -4,6 +4,7 @@ import '../../api/client.dart';
 import '../../api/employee_api.dart';
 import '../../store/auth_store.dart';
 import '../../widgets/error_view.dart';
+import 'profile_tab.dart';
 
 class EmployeeHomeScreen extends StatefulWidget {
   const EmployeeHomeScreen({super.key});
@@ -29,6 +30,7 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
         children: const [
           _BrowseEventsTab(),
           _MyApplicationsTab(),
+          EmployeeProfileTab(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -37,6 +39,7 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.search), label: 'אירועים'),
           NavigationDestination(icon: Icon(Icons.assignment), label: 'ההצעות שלי'),
+          NavigationDestination(icon: Icon(Icons.person_outline), label: 'פרופיל'),
         ],
       ),
     );
@@ -62,6 +65,20 @@ class _BrowseEventsTabState extends State<_BrowseEventsTab> {
   Future<void> _refresh() async {
     setState(() => _future = EmployeeApi.browseEvents());
     await _future;
+  }
+
+  Future<void> _markNotInterested(int eventId) async {
+    try {
+      await EmployeeApi.markInterest(eventId, 'not_interested');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('האירוע יוסר מההצעות שלך')),
+        );
+      }
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   Future<void> _apply(Map<String, dynamic> event) async {
@@ -173,11 +190,21 @@ class _BrowseEventsTabState extends State<_BrowseEventsTab> {
               Text(ev['description'] as String, maxLines: 3, overflow: TextOverflow.ellipsis),
             ],
             const SizedBox(height: 12),
-            FilledButton.icon(
-              icon: const Icon(Icons.send),
-              label: const Text('הגש מועמדות'),
-              onPressed: () => _apply(ev),
-            ),
+            Row(children: [
+              Expanded(
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.thumb_up_outlined, size: 18),
+                  label: const Text('מעניין אותי'),
+                  onPressed: () => _apply(ev),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.thumb_down_outlined, size: 18),
+                label: const Text('לא רלוונטי'),
+                onPressed: () => _markNotInterested(ev['id'] as int),
+              ),
+            ]),
           ],
         ),
       ),
@@ -215,6 +242,49 @@ class _MyApplicationsTabState extends State<_MyApplicationsTab> {
     }
   }
 
+  Future<void> _reportHours(Map<String, dynamic> a) async {
+    final hoursCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('דיווח שעות בפועל'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('כמה שעות בפועל עבדת באירוע?', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: hoursCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'שעות', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('שלח')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final hours = double.tryParse(hoursCtrl.text.trim());
+    if (hours == null || hours < 0 || hours > 24) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('הזן בין 0 ל-24')));
+      return;
+    }
+    try {
+      await EmployeeApi.reportHours(a['id'] as int, hours);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('הדיווח נשלח, ממתין לאישור המעסיק')),
+        );
+      }
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -243,6 +313,47 @@ class _MyApplicationsTabState extends State<_MyApplicationsTab> {
             itemBuilder: (_, i) => _appCard(Map<String, dynamic>.from(apps[i])),
           );
         },
+      ),
+    );
+  }
+
+  /// True iff the application is approved, the shift has ended, and hours
+  /// haven't yet been approved by the employer.
+  bool _canReportHours(Map<String, dynamic> a) {
+    if (a['status'] != 'approved') return false;
+    final endRaw = a['event']?['end_at'] as String?;
+    if (endRaw == null) return false;
+    final endAt = DateTime.tryParse(endRaw);
+    if (endAt == null || endAt.isAfter(DateTime.now())) return false;
+    return a['hours_status'] != 'approved';
+  }
+
+  Widget _hoursBadge(Map<String, dynamic> a) {
+    final status = a['hours_status'] as String;
+    Color color;
+    String label;
+    switch (status) {
+      case 'pending_approval':
+        color = Colors.orange;
+        label = 'ממתין לאישור שעות (${a['reported_hours']})';
+        break;
+      case 'approved':
+        color = Colors.green;
+        label = 'שעות אושרו (${a['reported_hours']})';
+        break;
+      case 'rejected':
+        color = Colors.red;
+        label = 'דיווח השעות נדחה';
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(4)),
+        child: Text(label, style: TextStyle(color: color, fontSize: 12)),
       ),
     );
   }
@@ -285,14 +396,29 @@ class _MyApplicationsTabState extends State<_MyApplicationsTab> {
               Text('הצעת המחיר שלך: ₪${a['proposed_amount']}',
                   style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
             ],
-            if (status == 'pending' || status == 'approved') ...[
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.cancel, size: 18),
-                label: const Text('בטל מועמדות'),
-                onPressed: () => _cancel(a['id'] as int),
-              ),
-            ],
+            if (a['hours_status'] != null && a['hours_status'] != 'not_reported')
+              _hoursBadge(a),
+            const SizedBox(height: 8),
+            Row(children: [
+              if (status == 'pending' || status == 'approved')
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.cancel, size: 18),
+                    label: const Text('בטל'),
+                    onPressed: () => _cancel(a['id'] as int),
+                  ),
+                ),
+              if (_canReportHours(a)) ...[
+                if (status == 'pending' || status == 'approved') const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.schedule, size: 18),
+                    label: const Text('דווח שעות'),
+                    onPressed: () => _reportHours(a),
+                  ),
+                ),
+              ],
+            ]),
           ],
         ),
       ),
