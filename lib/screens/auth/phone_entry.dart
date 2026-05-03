@@ -48,11 +48,54 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
         ),
       );
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (e.errorCode == 'ROLE_MISMATCH') {
+        if (mounted) await _showRoleMismatchDialog(e.data);
+      } else {
+        setState(() => _error = e.message);
+      }
     } catch (e) {
       setState(() => _error = 'שגיאת רשת — בדוק שהשרת רץ');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Backend rejects when an existing phone is registered with a different
+  /// role than the one selected here. Show an explanation and offer to
+  /// switch the picker so the user can continue logging in with the right
+  /// role on this phone.
+  Future<void> _showRoleMismatchDialog(Map<String, dynamic>? data) async {
+    final existing = data?['existing_role'] as String? ?? 'unknown';
+    final existingHe = existing == 'employer' ? 'מעסיק' : 'עובד';
+    final requestedHe = _role == 'employer' ? 'מעסיק' : 'עובד';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        icon: const Icon(Icons.info_outline_rounded, color: FindlyColors.brandPurple, size: 40),
+        title: const Text('המספר רשום בתפקיד אחר'),
+        content: Text(
+          'מספר הטלפון הזה כבר רשום במערכת בתור $existingHe.\n\n'
+          'כדי להירשם בתור $requestedHe — צריך מספר טלפון אחר, או למחוק את החשבון הקיים.\n\n'
+          'להתחבר בתור $existingHe?',
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ביטול'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('להתחבר בתור $existingHe'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      setState(() => _role = existing);
+      // Retry now that the picker matches the existing role.
+      _request();
     }
   }
 
