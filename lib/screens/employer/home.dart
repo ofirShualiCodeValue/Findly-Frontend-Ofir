@@ -27,8 +27,6 @@ class EmployerHomeScreen extends StatefulWidget {
 }
 
 class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
-  int _tab = 0;
-
   @override
   void initState() {
     super.initState();
@@ -54,25 +52,11 @@ class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
       // Render nothing while the post-frame redirect runs.
       return const SizedBox.shrink();
     }
-    return Scaffold(
-      body: IndexedStack(
-        index: _tab,
-        children: const [
-          _EventsTab(),
-          EmployerNotificationsTab(),
-          EmployerProfileScreen(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.event_rounded), label: 'האירועים שלי'),
-          NavigationDestination(icon: Icon(Icons.notifications_rounded), label: 'עדכונים'),
-          NavigationDestination(icon: Icon(Icons.person_rounded), label: 'פרופיל'),
-        ],
-      ),
-    );
+    // Employer is a single-screen UX per the Figma — calendar + events
+    // + the prominent "יצירת אירוע חדש" FAB. Profile and notifications
+    // are reachable as full-screen routes from the header icons (top-left),
+    // not from a bottom nav.
+    return const _EventsTab();
   }
 }
 
@@ -241,6 +225,35 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Row(
         children: [
+          // Top-left icons (profile + notifications). Each has a red dot
+          // indicator badge per the Figma — non-functional dot for now,
+          // wire up unread counts later.
+          Builder(
+            builder: (ctx) => _CircleIconButton(
+              icon: Icons.person_rounded,
+              showBadge: true,
+              onPressed: () => Navigator.push(
+                ctx,
+                MaterialPageRoute(builder: (_) => const EmployerProfileScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Builder(
+            builder: (ctx) => _CircleIconButton(
+              icon: Icons.notifications_rounded,
+              showBadge: true,
+              onPressed: () => Navigator.push(
+                ctx,
+                MaterialPageRoute(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('עדכונים')),
+                    body: const EmployerNotificationsTab(),
+                  ),
+                ),
+              ),
+            ),
+          ),
           const Spacer(),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -258,6 +271,55 @@ class _Header extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _CircleIconButton extends StatelessWidget {
+  final IconData icon;
+  final bool showBadge;
+  final VoidCallback onPressed;
+  const _CircleIconButton({
+    required this.icon,
+    required this.showBadge,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          elevation: 1,
+          shadowColor: Colors.black12,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(icon, color: FindlyColors.textPrimary, size: 20),
+            ),
+          ),
+        ),
+        if (showBadge)
+          Positioned(
+            top: 2,
+            right: 2,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: FindlyColors.warningRed,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
