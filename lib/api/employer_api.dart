@@ -65,6 +65,46 @@ class EmployerApi {
     return List<dynamic>.from(r.data['data']);
   }
 
+  // ---------- Shifts ----------
+
+  static Future<List<dynamic>> listShifts(int eventId) async {
+    final r = await ApiClient.dio.get('/v1/employer/events/$eventId/shifts');
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return List<dynamic>.from(r.data['data']);
+  }
+
+  /// Throws ApiException with errorCode 'SHIFT_DURATION_INVALID' when the
+  /// duration is outside 6–12 hours; the data carries
+  /// {min_hours, max_hours, actual_hours} for the popup.
+  static Future<Map<String, dynamic>> createShift(
+    int eventId, {
+    required DateTime startAt,
+    required DateTime endAt,
+    String? contactPersonName,
+    String? contactPersonPhone,
+    String? notes,
+    List<Map<String, dynamic>> staffingRequirements = const [],
+  }) async {
+    final r = await ApiClient.dio.post(
+      '/v1/employer/events/$eventId/shifts',
+      data: {
+        'start_at': startAt.toUtc().toIso8601String(),
+        'end_at': endAt.toUtc().toIso8601String(),
+        if (contactPersonName != null) 'contact_person_name': contactPersonName,
+        if (contactPersonPhone != null) 'contact_person_phone': contactPersonPhone,
+        if (notes != null) 'notes': notes,
+        if (staffingRequirements.isNotEmpty) 'staffing_requirements': staffingRequirements,
+      },
+    );
+    if (r.statusCode != 201) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
+  static Future<void> deleteShift(int eventId, int shiftId) async {
+    final r = await ApiClient.dio.delete('/v1/employer/events/$eventId/shifts/$shiftId');
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+  }
+
   /// Capacity status for an event, including a per-shift / per-role breakdown.
   static Future<Map<String, dynamic>> getCapacity(int eventId) async {
     final r = await ApiClient.dio.get('/v1/employer/events/$eventId/capacity');

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../api/client.dart';
 import '../../api/employer_api.dart';
+import '../../api/shared_api.dart';
 import '../../theme.dart';
 import '../../widgets/confirm_modal.dart';
 import '../../widgets/error_view.dart';
@@ -909,24 +910,625 @@ class _MessagesTab extends StatelessWidget {
   }
 }
 
-class _ShiftsTab extends StatelessWidget {
+class _ShiftsTab extends StatefulWidget {
   final Map<String, dynamic> event;
   const _ShiftsTab({required this.event});
 
   @override
+  State<_ShiftsTab> createState() => _ShiftsTabState();
+}
+
+class _ShiftsTabState extends State<_ShiftsTab> {
+  late Future<List<dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = EmployerApi.listShifts(widget.event['id'] as int);
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _future = EmployerApi.listShifts(widget.event['id'] as int));
+    await _future;
+  }
+
+  Future<void> _addShift() async {
+    final eventStart = DateTime.tryParse(widget.event['start_at'] as String? ?? '');
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CreateShiftSheet(
+        eventId: widget.event['id'] as int,
+        defaultDate: eventStart,
+      ),
+    );
+    if (ok == true) _refresh();
+  }
+
+  Future<void> _confirmDelete(int shiftId) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('לבטל משמרת?'),
+        content: const Text('הפעולה תסמן את המשמרת כבוטלת.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: FindlyColors.warningRed),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('בטל משמרת'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await EmployerApi.deleteShift(widget.event['id'] as int, shiftId);
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.access_time_rounded, size: 48, color: FindlyColors.textSecondary.withValues(alpha: 0.4)),
-          const SizedBox(height: 8),
-          Text('נדרש: ${event['required_employees']} עובדים',
-              style: GoogleFonts.heebo(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text('פירוט המשמרות יתווסף בעדכון הבא',
-              style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.textSecondary)),
-        ]),
+    return Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: _refresh,
+          child: FutureBuilder<List<dynamic>>(
+            future: _future,
+            builder: (_, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return ErrorView(message: snap.error.toString(), onRetry: _refresh);
+              }
+              final shifts = snap.data ?? [];
+              if (shifts.isEmpty) {
+                return ListView(children: [
+                  const SizedBox(height: 80),
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(children: [
+                        Icon(Icons.access_time_rounded,
+                            size: 48,
+                            color: FindlyColors.textSecondary.withValues(alpha: 0.4)),
+                        const SizedBox(height: 8),
+                        Text('עוד אין משמרות',
+                            style: GoogleFonts.heebo(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 4),
+                        Text('הוסף משמרת ראשונה ע״י הכפתור למטה',
+                            style: GoogleFonts.heebo(
+                                fontSize: 13, color: FindlyColors.textSecondary)),
+                      ]),
+                    ),
+                  ),
+                ]);
+              }
+              return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                itemCount: shifts.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, i) => _ShiftCard(
+                  shift: Map<String, dynamic>.from(shifts[i]),
+                  onDelete: () => _confirmDelete(shifts[i]['id'] as int),
+                ),
+              );
+            },
+          ),
+        ),
+        Positioned(
+          bottom: 16,
+          left: 16,
+          right: 16,
+          child: SafeArea(
+            child: FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('הוסף משמרת'),
+              onPressed: _addShift,
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ShiftCard extends StatelessWidget {
+  final Map<String, dynamic> shift;
+  final VoidCallback onDelete;
+  const _ShiftCard({required this.shift, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    final start = DateTime.tryParse(shift['start_at'] as String? ?? '');
+    final end = DateTime.tryParse(shift['end_at'] as String? ?? '');
+    final dayLabel = start != null ? DateFormat('EEEE, d בMMMM', 'he').format(start) : '';
+    final timeRange = (start != null && end != null)
+        ? '${DateFormat('HH:mm').format(start)} - ${DateFormat('HH:mm').format(end)}'
+        : '';
+    final status = shift['status'] as String? ?? 'active';
+    final cancelled = status == 'cancelled';
+    final reqs = (shift['staffing_requirements'] as List? ?? const []).cast<Map<String, dynamic>>();
+    final contactName = shift['contact_person_name'] as String?;
+    final contactPhone = shift['contact_person_phone'] as String?;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Text(
+                timeRange,
+                style: GoogleFonts.heebo(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  decoration: cancelled ? TextDecoration.lineThrough : null,
+                  color: cancelled ? FindlyColors.textSecondary : FindlyColors.textPrimary,
+                ),
+              ),
+            ),
+            if (cancelled)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: FindlyColors.warningRed.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text('בוטל',
+                    style: GoogleFonts.heebo(
+                        color: FindlyColors.warningRed,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700)),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                onPressed: onDelete,
+                color: FindlyColors.warningRed,
+              ),
+          ]),
+          if (dayLabel.isNotEmpty)
+            Text(dayLabel,
+                style: GoogleFonts.heebo(fontSize: 12, color: FindlyColors.textSecondary)),
+          if (contactName != null && contactName.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.person_outline, size: 14, color: FindlyColors.textSecondary),
+              const SizedBox(width: 4),
+              Text(
+                [contactName, if (contactPhone != null) contactPhone].join(' • '),
+                style: GoogleFonts.heebo(fontSize: 12, color: FindlyColors.textSecondary),
+              ),
+            ]),
+          ],
+          if (reqs.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('דרושים:',
+                style: GoogleFonts.heebo(fontSize: 12, color: FindlyColors.textSecondary)),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: reqs.map((r) {
+                final name = r['industry_subcategory']?['name'] as String? ?? '';
+                final count = r['required_count'] as int? ?? 1;
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: FindlyColors.brandPurple.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text('$count × $name',
+                      style: GoogleFonts.heebo(fontSize: 12, fontWeight: FontWeight.w600)),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom-sheet form for creating a Shift on an event. Pulls the industry
+/// taxonomy lazily so the staffing picker shows real sub-categories.
+class CreateShiftSheet extends StatefulWidget {
+  final int eventId;
+  final DateTime? defaultDate;
+  const CreateShiftSheet({super.key, required this.eventId, this.defaultDate});
+
+  @override
+  State<CreateShiftSheet> createState() => _CreateShiftSheetState();
+}
+
+class _CreateShiftSheetState extends State<CreateShiftSheet> {
+  late DateTime _date;
+  TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay _endTime = const TimeOfDay(hour: 16, minute: 0);
+  final _contactNameCtrl = TextEditingController();
+  final _contactPhoneCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+
+  late Future<List<dynamic>> _industriesFuture;
+  // shift staffing — Map<industry_subcategory_id, count>
+  final Map<int, int> _staffingByCount = {};
+  // For UI: name lookup
+  final Map<int, String> _subCategoryNames = {};
+
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _date = widget.defaultDate ?? DateTime.now();
+    _industriesFuture = SharedApi.industries();
+  }
+
+  @override
+  void dispose() {
+    _contactNameCtrl.dispose();
+    _contactPhoneCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  Future<void> _pickStart() async {
+    final t = await showTimePicker(context: context, initialTime: _startTime);
+    if (t != null) setState(() => _startTime = t);
+  }
+
+  Future<void> _pickEnd() async {
+    final t = await showTimePicker(context: context, initialTime: _endTime);
+    if (t != null) setState(() => _endTime = t);
+  }
+
+  Future<void> _addStaffingRequirement() async {
+    final industries = await _industriesFuture;
+    if (!mounted) return;
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      builder: (_) => _PickSubCategorySheet(industries: industries),
+    );
+    if (selected == null) return;
+    setState(() => _staffingByCount[selected] = 1);
+  }
+
+  DateTime _composeDateTime(TimeOfDay t) =>
+      DateTime(_date.year, _date.month, _date.day, t.hour, t.minute);
+
+  Future<void> _submit() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final start = _composeDateTime(_startTime);
+    var end = _composeDateTime(_endTime);
+    // If end-of-day is "before" start, treat it as next-day shift.
+    if (end.isBefore(start)) {
+      end = end.add(const Duration(days: 1));
+    }
+    try {
+      await EmployerApi.createShift(
+        widget.eventId,
+        startAt: start,
+        endAt: end,
+        contactPersonName: _contactNameCtrl.text.trim().isEmpty ? null : _contactNameCtrl.text.trim(),
+        contactPersonPhone: _contactPhoneCtrl.text.trim().isEmpty ? null : _contactPhoneCtrl.text.trim(),
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        staffingRequirements: _staffingByCount.entries
+            .map((e) => {'industry_subcategory_id': e.key, 'required_count': e.value})
+            .toList(),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (e.errorCode == 'SHIFT_DURATION_INVALID') {
+        if (mounted) await _showDurationDialog(e.data);
+        setState(() => _error = null);
+      } else {
+        setState(() => _error = e.message);
+      }
+    } catch (_) {
+      setState(() => _error = 'שגיאת רשת');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _showDurationDialog(Map<String, dynamic>? data) async {
+    final min = data?['min_hours'] ?? 6;
+    final max = data?['max_hours'] ?? 12;
+    final actual = (data?['actual_hours'] as num?)?.toStringAsFixed(1) ?? '?';
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        icon: const Icon(Icons.error_outline_rounded, color: FindlyColors.warningRed, size: 40),
+        title: const Text('משך משמרת לא תקין'),
+        content: Text(
+          'משמרת חייבת להיות בין $min ל-$max שעות. המשמרת שהזנת היא $actual שעות.',
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('הבנתי'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tf = (TimeOfDay t) => t.format(context);
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E5EE),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('הוספת משמרת',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.heebo(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 16),
+              _FieldLabel(label: 'תאריך'),
+              InkWell(
+                onTap: _pickDate,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.calendar_today_outlined, size: 18),
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Text(DateFormat('EEEE, dd/MM/yyyy', 'he').format(_date)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _FieldLabel(label: 'שעת התחלה'),
+                      InkWell(
+                        onTap: _pickStart,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.access_time_rounded, size: 18),
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text(tf(_startTime)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _FieldLabel(label: 'שעת סיום'),
+                      InkWell(
+                        onTap: _pickEnd,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.access_time_rounded, size: 18),
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text(tf(_endTime)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              _FieldLabel(label: 'איש קשר באתר'),
+              TextField(
+                controller: _contactNameCtrl,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.person_outline, size: 18),
+                  border: OutlineInputBorder(),
+                  hintText: 'שם',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _contactPhoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.phone_outlined, size: 18),
+                  border: OutlineInputBorder(),
+                  hintText: 'טלפון',
+                ),
+              ),
+              const SizedBox(height: 12),
+              _FieldLabel(label: 'הערות'),
+              TextField(
+                controller: _notesCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                Text('כוח אדם נדרש',
+                    style: GoogleFonts.heebo(fontSize: 13, fontWeight: FontWeight.w600)),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _addStaffingRequirement,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('הוסף תפקיד'),
+                ),
+              ]),
+              FutureBuilder<List<dynamic>>(
+                future: _industriesFuture,
+                builder: (_, snap) {
+                  // Build name lookup once we have the data.
+                  if (snap.hasData) {
+                    for (final ind in snap.data!) {
+                      for (final sub in (ind['sub_categories'] as List? ?? const [])) {
+                        _subCategoryNames[sub['id'] as int] = sub['name'] as String;
+                      }
+                    }
+                  }
+                  if (_staffingByCount.isEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text('לא הוגדרו תפקידים. הוסף ע״י "הוסף תפקיד".',
+                          style: GoogleFonts.heebo(
+                              fontSize: 12, color: FindlyColors.textSecondary)),
+                    );
+                  }
+                  return Column(
+                    children: _staffingByCount.entries.map((e) {
+                      final id = e.key;
+                      final count = e.value;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(children: [
+                          Expanded(
+                            child: Text(_subCategoryNames[id] ?? 'תפקיד #$id',
+                                style: GoogleFonts.heebo(fontWeight: FontWeight.w600)),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline, size: 22),
+                            onPressed: count > 1
+                                ? () => setState(() => _staffingByCount[id] = count - 1)
+                                : null,
+                          ),
+                          Text('$count', style: GoogleFonts.heebo(fontWeight: FontWeight.w700)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, size: 22),
+                            onPressed: () => setState(() => _staffingByCount[id] = count + 1),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            color: FindlyColors.warningRed,
+                            onPressed: () => setState(() => _staffingByCount.remove(id)),
+                          ),
+                        ]),
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: FindlyColors.warningRed.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(_error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: FindlyColors.warningRed)),
+                ),
+              ],
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _saving ? null : _submit,
+                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                child: _saving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('שמור משמרת'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  final String label;
+  // ignore: unused_element_parameter
+  const _FieldLabel({required this.label});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(label,
+          style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.textSecondary)),
+    );
+  }
+}
+
+class _PickSubCategorySheet extends StatelessWidget {
+  final List<dynamic> industries;
+  const _PickSubCategorySheet({required this.industries});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        children: industries.expand<Widget>((ind) {
+          final indName = ind['name'] as String;
+          final subs = (ind['sub_categories'] as List? ?? const []).cast<Map<String, dynamic>>();
+          return [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(indName,
+                  style: GoogleFonts.heebo(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: FindlyColors.brandPurple)),
+            ),
+            ...subs.map((s) => ListTile(
+                  title: Text(s['name'] as String),
+                  onTap: () => Navigator.pop(context, s['id'] as int),
+                )),
+          ];
+        }).toList(),
       ),
     );
   }
