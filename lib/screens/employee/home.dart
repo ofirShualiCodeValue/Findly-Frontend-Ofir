@@ -87,6 +87,9 @@ class _HomeFeedState extends State<_HomeFeed> {
   // Map eventId -> application from the user's /applications endpoint, used
   // to overlay status badges on cards.
   Map<int, Map<String, dynamic>> _appsByEventId = {};
+  /// The employee's base hourly rate, used to pre-fill the apply price.
+  /// Loaded once from /v1/employee/profile alongside the events list.
+  double? _baseHourlyRate;
 
   @override
   void initState() {
@@ -98,12 +101,18 @@ class _HomeFeedState extends State<_HomeFeed> {
     final results = await Future.wait([
       EmployeeApi.browseEvents(tab: _segment),
       EmployeeApi.myApplications(),
+      // Profile gives us base_hourly_rate for pre-filling apply prices.
+      // Treat failure as soft — the rate just won't pre-fill.
+      EmployeeApi.getProfile().catchError((_) => <String, dynamic>{}),
     ]);
-    final events = results[0];
-    final apps = results[1];
+    final events = results[0] as List<dynamic>;
+    final apps = results[1] as List<dynamic>;
+    final profile = results[2] as Map<String, dynamic>;
     _appsByEventId = {
       for (final a in apps) (a['event_id'] as int): Map<String, dynamic>.from(a),
     };
+    final rateRaw = profile['profile']?['base_hourly_rate'];
+    _baseHourlyRate = rateRaw == null ? null : double.tryParse(rateRaw.toString());
     return events;
   }
 
@@ -122,7 +131,14 @@ class _HomeFeedState extends State<_HomeFeed> {
   }
 
   Future<void> _apply(Map<String, dynamic> event) async {
-    final amountCtrl = TextEditingController();
+    final shiftHours = _totalShiftHours(event);
+    final preFill = (_baseHourlyRate != null && shiftHours > 0)
+        ? (_baseHourlyRate! * shiftHours).toStringAsFixed(0)
+        : '';
+    final amountCtrl = TextEditingController(text: preFill);
+    final hint = (_baseHourlyRate != null && shiftHours > 0)
+        ? '₪${_baseHourlyRate!.toStringAsFixed(0)} × ${shiftHours.toStringAsFixed(1)} שעות'
+        : 'הצעת מחיר';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -130,12 +146,21 @@ class _HomeFeedState extends State<_HomeFeed> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('כמה אתה מבקש לסך כל שעות האירוע?', style: TextStyle(fontSize: 13)),
+            Text(
+              preFill.isEmpty
+                  ? 'כמה אתה מבקש לסך כל שעות המשמרת?'
+                  : 'חושב לפי שכר הבסיס שהגדרת. אפשר לשנות.',
+              style: const TextStyle(fontSize: 13),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: amountCtrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'הצעת מחיר (₪)', border: OutlineInputBorder()),
+              decoration: InputDecoration(
+                labelText: 'הצעת מחיר (₪)',
+                hintText: hint,
+                border: const OutlineInputBorder(),
+              ),
             ),
           ],
         ),
@@ -158,6 +183,21 @@ class _HomeFeedState extends State<_HomeFeed> {
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
+  }
+
+  /// Sum of all active shifts on the event in hours. Used to suggest a
+  /// proposed amount = base_hourly_rate × hours when applying.
+  double _totalShiftHours(Map<String, dynamic> event) {
+    final shifts = (event['shifts'] as List?) ?? const [];
+    double total = 0;
+    for (final s in shifts) {
+      final start = DateTime.tryParse(s['start_at'] as String? ?? '');
+      final end = DateTime.tryParse(s['end_at'] as String? ?? '');
+      if (start != null && end != null) {
+        total += end.difference(start).inMinutes / 60.0;
+      }
+    }
+    return total;
   }
 
   /// Two-stage cancellation: first call returns 409 + CANCELLATION_POLICY_LATE
@@ -500,13 +540,25 @@ class _EventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final start = DateTime.parse(event['start_at'] as String);
-    final end = DateTime.parse(event['end_at'] as String);
+    final eventStart = DateTime.parse(event['start_at'] as String);
+    final eventEnd = DateTime.parse(event['end_at'] as String);
+    // Prefer shift times — events span the whole day by default; only the
+    // shift carries the real working window the employer entered.
+    final shifts = (event['shifts'] as List?) ?? const [];
+    final firstShift =
+        shifts.isNotEmpty ? Map<String, dynamic>.from(shifts.first) : null;
+    final start = firstShift != null
+        ? DateTime.parse(firstShift['start_at'] as String)
+        : eventStart;
+    final end = firstShift != null
+        ? DateTime.parse(firstShift['end_at'] as String)
+        : eventEnd;
     final dayName = DateFormat('EEEE', 'he').format(start);
     final timeRange = '${DateFormat('HH:mm').format(start)} - ${DateFormat('HH:mm').format(end)}';
     final emp = event['employer'] as Map<String, dynamic>?;
     final sub = event['industry_sub_category'] as Map<String, dynamic>?;
     final venue = (event['venue'] as String?) ?? '';
+    final extraShifts = shifts.length > 1 ? shifts.length - 1 : 0;
 
     final statusInfo = _statusFor(application, segment, start);
     final canReportHours = application != null &&
@@ -545,10 +597,20 @@ class _EventCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            timeRange,
-            style: GoogleFonts.heebo(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
+          Row(children: [
+            Text(
+              timeRange,
+              style: GoogleFonts.heebo(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            if (extraShifts > 0) ...[
+              const SizedBox(width: 8),
+              Text(
+                '+$extraShifts משמרות',
+                style: GoogleFonts.heebo(
+                    fontSize: 12, color: FindlyColors.brandPurple, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ]),
           const SizedBox(height: 4),
           Text(
             [if (venue.isNotEmpty) venue, if (emp?['business_name'] != null) emp!['business_name']]
