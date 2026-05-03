@@ -141,7 +141,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
   Future<void> _manageIndustries(List<dynamic> currentIndustries) async {
     final selected = {...currentIndustries.map((c) => c['id'] as int)};
-    final allCategories = await SharedApi.categories();
+    final allCategories = await SharedApi.industries();
 
     if (!mounted) return;
     final ok = await showDialog<bool>(
@@ -181,17 +181,8 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       }),
     );
     if (ok != true) return;
-
-    final originalIds = currentIndustries.map((c) => c['id'] as int).toSet();
-    final toAdd = selected.difference(originalIds);
-    final toRemove = originalIds.difference(selected);
     try {
-      for (final id in toAdd) {
-        await EmployeeApi.addIndustry(id);
-      }
-      for (final id in toRemove) {
-        await EmployeeApi.removeIndustry(id);
-      }
+      await EmployeeApi.setIndustries(selected.toList());
       _refresh();
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));

@@ -20,27 +20,42 @@ class EmployeeApi {
 
   /// First-time registration completion. Throws ApiException with
   /// errorCode == 'AGE_REQUIREMENT_NOT_MET' if the user is under 18.
+  /// Either a full date_of_birth or year_of_birth must be provided;
+  /// the Figma uses a year-only wheel picker.
   static Future<Map<String, dynamic>> completeRegistration({
-    required DateTime dateOfBirth,
-    required String workStatus, // 'freelancer' | 'self_employed'
+    String? firstName,
+    String? lastName,
+    int? yearOfBirth,
+    DateTime? dateOfBirth,
+    required String workStatus, // 'freelancer' | 'salaried'
     required int locationRangeKm,
     required double baseHourlyRate,
-    required double homeLatitude,
-    required double homeLongitude,
+    String? homeCity,
+    double? homeLatitude,
+    double? homeLongitude,
     List<int> industryIds = const [],
+    List<int> industrySubCategoryIds = const [],
   }) async {
-    final dob = '${dateOfBirth.year.toString().padLeft(4, '0')}-'
-        '${dateOfBirth.month.toString().padLeft(2, '0')}-'
-        '${dateOfBirth.day.toString().padLeft(2, '0')}';
-    final r = await ApiClient.dio.post('/v1/employee/profile/complete', data: {
-      'date_of_birth': dob,
+    final body = <String, dynamic>{
       'work_status': workStatus,
       'location_range_km': locationRangeKm,
       'base_hourly_rate': baseHourlyRate,
-      'home_latitude': homeLatitude,
-      'home_longitude': homeLongitude,
       'industry_ids': industryIds,
-    });
+      'industry_subcategory_ids': industrySubCategoryIds,
+    };
+    if (firstName != null) body['first_name'] = firstName;
+    if (lastName != null) body['last_name'] = lastName;
+    if (yearOfBirth != null) body['year_of_birth'] = yearOfBirth;
+    if (dateOfBirth != null) {
+      body['date_of_birth'] = '${dateOfBirth.year.toString().padLeft(4, '0')}-'
+          '${dateOfBirth.month.toString().padLeft(2, '0')}-'
+          '${dateOfBirth.day.toString().padLeft(2, '0')}';
+    }
+    if (homeCity != null) body['home_city'] = homeCity;
+    if (homeLatitude != null) body['home_latitude'] = homeLatitude;
+    if (homeLongitude != null) body['home_longitude'] = homeLongitude;
+
+    final r = await ApiClient.dio.post('/v1/employee/profile/complete', data: body);
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return Map<String, dynamic>.from(r.data['data']);
   }
@@ -58,27 +73,34 @@ class EmployeeApi {
     return Map<String, dynamic>.from(r.data['data']);
   }
 
-  static Future<Map<String, dynamic>> addIndustry(int industryId) async {
-    final r = await ApiClient.dio.post(
+  /// Replaces the employee's industries with the given list.
+  static Future<Map<String, dynamic>> setIndustries(List<int> industryIds) async {
+    final r = await ApiClient.dio.put(
       '/v1/employee/profile/industries',
-      data: {'industry_id': industryId},
+      data: {'industry_ids': industryIds},
     );
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return Map<String, dynamic>.from(r.data['data']);
   }
 
-  static Future<Map<String, dynamic>> removeIndustry(int industryId) async {
-    final r = await ApiClient.dio.delete('/v1/employee/profile/industries/$industryId');
+  /// Replaces the employee's industry sub-categories (specialties).
+  static Future<Map<String, dynamic>> setIndustrySubCategories(List<int> subCategoryIds) async {
+    final r = await ApiClient.dio.put(
+      '/v1/employee/profile/industry-subcategories',
+      data: {'industry_subcategory_ids': subCategoryIds},
+    );
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return Map<String, dynamic>.from(r.data['data']);
   }
 
   // ---------- Events ----------
 
-  /// `match=on` (default) returns only events that match the employee's
-  /// industries, location range, and base rate.
-  static Future<List<dynamic>> browseEvents({bool match = true}) async {
+  /// Employee feed. `tab` is either 'offers' (matched, not applied yet) or
+  /// 'shifts' (events I have an application on). Pass match=false on the
+  /// offers tab to bypass the matcher (debug).
+  static Future<List<dynamic>> browseEvents({String tab = 'offers', bool match = true}) async {
     final r = await ApiClient.dio.get('/v1/employee/events', queryParameters: {
+      'tab': tab,
       if (!match) 'match': 'off',
       'page_size': 100,
     });
