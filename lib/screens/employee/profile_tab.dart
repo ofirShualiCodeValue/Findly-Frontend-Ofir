@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../store/auth_store.dart';
 import '../../theme.dart';
 import '../../widgets/gradient_background.dart';
+import '../auth/phone_entry.dart';
 import 'profile_details.dart';
 
 class EmployeeProfileTab extends StatelessWidget {
@@ -50,7 +51,14 @@ class EmployeeProfileTab extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: FindlyColors.warningRed,
               ),
-              onPressed: () => authStore.clear(),
+              onPressed: () async {
+                await authStore.clear();
+                if (!context.mounted) return;
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const PhoneEntryScreen()),
+                  (_) => false,
+                );
+              },
               child: const Text('התנתקות'),
             ),
           ],

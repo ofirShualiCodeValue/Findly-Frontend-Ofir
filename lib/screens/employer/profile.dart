@@ -6,6 +6,7 @@ import '../../store/auth_store.dart';
 import '../../theme.dart';
 import '../../widgets/error_view.dart';
 import '../../widgets/gradient_background.dart';
+import '../auth/phone_entry.dart';
 
 class EmployerProfileScreen extends StatefulWidget {
   const EmployerProfileScreen({super.key});
@@ -137,7 +138,14 @@ class _EmployerProfileScreenState extends State<EmployerProfileScreen> {
               ),
               const SizedBox(height: 12),
               TextButton(
-                onPressed: () => authStore.clear(),
+                onPressed: () async {
+                  await authStore.clear();
+                  if (!context.mounted) return;
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const PhoneEntryScreen()),
+                    (_) => false,
+                  );
+                },
                 style: TextButton.styleFrom(foregroundColor: FindlyColors.warningRed),
                 child: const Text('התנתקות'),
               ),
