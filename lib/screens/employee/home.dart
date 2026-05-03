@@ -8,6 +8,7 @@ import '../../theme.dart';
 import '../../widgets/calendar_strip.dart';
 import '../../widgets/error_view.dart';
 import '../../widgets/gradient_background.dart';
+import 'notifications.dart';
 import 'profile_tab.dart';
 
 class EmployeeHomeScreen extends StatefulWidget {
@@ -133,6 +134,64 @@ class _HomeFeedState extends State<_HomeFeed> {
     }
   }
 
+  /// Two-stage cancellation: first call returns 409 + CANCELLATION_POLICY_LATE
+  /// when within 48 h of the shift, prompting the policy popup. The second
+  /// call passes force=true to confirm.
+  Future<void> _cancelApplication(Map<String, dynamic> app) async {
+    final id = app['id'] as int;
+    try {
+      await EmployeeApi.cancelApplication(id);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('המועמדות בוטלה')));
+      _refresh();
+    } on ApiException catch (e) {
+      if (e.errorCode == 'CANCELLATION_POLICY_LATE') {
+        if (!mounted) return;
+        final force = await _showCancellationPolicyDialog(e.data);
+        if (force == true) {
+          try {
+            await EmployeeApi.cancelApplication(id, force: true);
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('המועמדות בוטלה')));
+            _refresh();
+          } on ApiException catch (e2) {
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e2.message)));
+          }
+        }
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
+  Future<bool?> _showCancellationPolicyDialog(Map<String, dynamic>? data) {
+    final hours = (data?['hours_until_shift'] as num?)?.toDouble() ?? 0;
+    final threshold = (data?['policy_threshold_hours'] as num?)?.toInt() ?? 48;
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 40),
+        title: const Text('מדיניות ביטול'),
+        content: Text(
+          'הביטול נעשה פחות מ-$threshold שעות לפני תחילת המשמרת '
+          '(נותרו ${hours.toStringAsFixed(1)} שעות). ביטול מאוחר עלול '
+          'לפגוע בדירוג שלך אצל המעסיק. להמשיך לבטל?',
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('להישאר במשמרת'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: FindlyColors.warningRed),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('בטל בכל זאת'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _reportHours(Map<String, dynamic> app) async {
     final hoursCtrl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -251,6 +310,10 @@ class _HomeFeedState extends State<_HomeFeed> {
                             final a = _appsByEventId[ev['id'] as int];
                             if (a != null) _reportHours(a);
                           },
+                          onCancel: () {
+                            final a = _appsByEventId[ev['id'] as int];
+                            if (a != null) _cancelApplication(a);
+                          },
                           segment: _segment,
                         );
                       },
@@ -285,18 +348,30 @@ class _Header extends StatelessWidget {
                   style: GoogleFonts.heebo(fontSize: 14, color: FindlyColors.textSecondary),
                 ),
               ),
-              Stack(children: [
-                IconButton(icon: const Icon(Icons.notifications_outlined), onPressed: () {}),
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+              Builder(
+                builder: (ctx) => Stack(children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () => Navigator.of(ctx).push(
+                      MaterialPageRoute(
+                        builder: (_) => Scaffold(
+                          appBar: AppBar(title: const Text('עדכונים')),
+                          body: const EmployeeNotificationsTab(),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ]),
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    ),
+                  ),
+                ]),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -391,6 +466,7 @@ class _EventCard extends StatelessWidget {
   final VoidCallback onApply;
   final VoidCallback onDismiss;
   final VoidCallback onReportHours;
+  final VoidCallback onCancel;
   final String segment;
   const _EventCard({
     required this.event,
@@ -398,6 +474,7 @@ class _EventCard extends StatelessWidget {
     required this.onApply,
     required this.onDismiss,
     required this.onReportHours,
+    required this.onCancel,
     required this.segment,
   });
 
@@ -491,10 +568,23 @@ class _EventCard extends StatelessWidget {
               icon: const Icon(Icons.schedule),
               label: const Text('דווח שעות'),
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(40)),
+            )
+          else if (canCancel)
+            OutlinedButton.icon(
+              onPressed: onCancel,
+              icon: const Icon(Icons.cancel_outlined, size: 18),
+              label: const Text('ביטול מועמדות'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(40)),
             ),
         ],
       ),
     );
+  }
+
+  bool get canCancel {
+    if (application == null) return false;
+    final status = application!['status'];
+    return status == 'pending' || status == 'approved';
   }
 
   _StatusInfo? _statusFor(Map<String, dynamic>? app, String segment, DateTime start) {

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../api/client.dart';
+import '../../api/employee_api.dart';
 import '../../theme.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/error_view.dart';
 import '../../widgets/gradient_background.dart';
 
 class EmployeeNotificationsTab extends StatefulWidget {
@@ -13,31 +16,69 @@ class EmployeeNotificationsTab extends StatefulWidget {
 }
 
 class _EmployeeNotificationsTabState extends State<EmployeeNotificationsTab> {
-  // TODO: wire to GET /v1/employee/notifications when that endpoint is added.
-  // For now we render the empty state matching the mockup, with a sample
-  // payload toggle to preview the filled state.
-  final List<Map<String, dynamic>> _notifications = [];
+  late Future<List<dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = EmployeeApi.listNotifications();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _future = EmployeeApi.listNotifications());
+    await _future;
+  }
+
+  Future<void> _markRead(Map<String, dynamic> item) async {
+    if (item['read_at'] != null) return;
+    try {
+      await EmployeeApi.markNotificationRead(item['id'] as int);
+      _refresh();
+    } on ApiException catch (_) {
+      // Non-fatal — the row stays as unread on screen until next refresh.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_notifications.isEmpty) {
-      return const SurfaceGradientBackground(
-        child: SafeArea(
-          child: EmptyState(
-            icon: Icons.inbox_rounded,
-            title: 'אין עדכונים חדשים',
-          ),
-        ),
-      );
-    }
-
     return SurfaceGradientBackground(
       child: SafeArea(
-        child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          itemCount: _notifications.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (_, i) => _NotificationCard(item: _notifications[i]),
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: FutureBuilder<List<dynamic>>(
+            future: _future,
+            builder: (_, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return ErrorView(message: snap.error.toString(), onRetry: _refresh);
+              }
+              final items = snap.data ?? [];
+              if (items.isEmpty) {
+                return ListView(children: const [
+                  SizedBox(height: 80),
+                  EmptyState(
+                    icon: Icons.inbox_rounded,
+                    title: 'אין עדכונים חדשים',
+                  ),
+                ]);
+              }
+              return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, i) {
+                  final item = Map<String, dynamic>.from(items[i]);
+                  return InkWell(
+                    onTap: () => _markRead(item),
+                    borderRadius: BorderRadius.circular(20),
+                    child: _NotificationCard(item: item),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );

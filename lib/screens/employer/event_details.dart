@@ -19,7 +19,6 @@ class EventDetailsScreen extends StatefulWidget {
 class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProviderStateMixin {
   late final TabController _tabs;
   Map<String, dynamic>? _event;
-  List<dynamic> _applications = [];
   List<dynamic> _messages = [];
   String? _error;
   bool _loading = true;
@@ -42,13 +41,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProv
     try {
       final results = await Future.wait([
         EmployerApi.getEvent(widget.eventId),
-        EmployerApi.listApplications(widget.eventId),
         EmployerApi.notificationHistory(widget.eventId),
       ]);
       setState(() {
         _event = results[0] as Map<String, dynamic>;
-        _applications = results[1] as List<dynamic>;
-        _messages = results[2] as List<dynamic>;
+        _messages = results[1] as List<dynamic>;
         _error = null;
       });
     } on ApiException catch (e) {
@@ -57,15 +54,6 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProv
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _decide(int appId, String status) async {
-    try {
-      await EmployerApi.decideApplication(widget.eventId, appId, status);
-      _load();
-    } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -216,7 +204,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> with TickerProv
               children: [
                 _MessagesTab(messages: _messages),
                 _ShiftsTab(event: e),
-                _ApplicantsTab(applications: _applications, onDecide: _decide),
+                _ApplicantsTab(
+                  eventId: widget.eventId,
+                  eventEndAt: DateTime.tryParse(e['end_at'] as String? ?? ''),
+                ),
               ],
             ),
           ),
@@ -336,30 +327,383 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _ApplicantsTab extends StatelessWidget {
-  final List<dynamic> applications;
-  final Future<void> Function(int, String) onDecide;
-  const _ApplicantsTab({required this.applications, required this.onDecide});
+class _ApplicantsTab extends StatefulWidget {
+  final int eventId;
+  final DateTime? eventEndAt;
+  const _ApplicantsTab({required this.eventId, required this.eventEndAt});
+
+  @override
+  State<_ApplicantsTab> createState() => _ApplicantsTabState();
+}
+
+class _ApplicantsTabState extends State<_ApplicantsTab> {
+  String _statusFilter = 'all'; // 'all' | one of EventApplicationStatus
+  String _sortBy = 'created_at';
+  double? _minRating;
+  late Future<List<dynamic>> _appsFuture;
+  Map<String, dynamic>? _capacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _appsFuture = _loadApps();
+    _loadCapacity();
+  }
+
+  Future<List<dynamic>> _loadApps() {
+    return EmployerApi.listApplications(
+      widget.eventId,
+      status: _statusFilter == 'all' ? null : _statusFilter,
+      minRating: _minRating,
+      sortBy: _sortBy,
+    );
+  }
+
+  Future<void> _loadCapacity() async {
+    try {
+      final c = await EmployerApi.getCapacity(widget.eventId);
+      if (mounted) setState(() => _capacity = c);
+    } catch (_) {
+      // Capacity is decorative — silent failure is fine.
+    }
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _appsFuture = _loadApps());
+    await _loadCapacity();
+    await _appsFuture;
+  }
+
+  Future<void> _decide(int appId, String status) async {
+    try {
+      await EmployerApi.decideApplication(widget.eventId, appId, status);
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _rate(Map<String, dynamic> app) async {
+    final result = await showDialog<({int rating, String? comment})>(
+      context: context,
+      builder: (_) => _RateWorkerDialog(application: app),
+    );
+    if (result == null) return;
+    try {
+      await EmployerApi.rateWorker(
+        widget.eventId,
+        app['id'] as int,
+        rating: result.rating,
+        comment: result.comment,
+      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('הדירוג נשמר')));
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  bool get _eventEnded =>
+      widget.eventEndAt != null && widget.eventEndAt!.isBefore(DateTime.now());
 
   @override
   Widget build(BuildContext context) {
-    if (applications.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text('אין עוד הצעות עבודה',
-              style: GoogleFonts.heebo(color: FindlyColors.textSecondary)),
+    return Column(
+      children: [
+        if (_capacity != null) _CapacityBanner(capacity: _capacity!),
+        _FilterBar(
+          statusFilter: _statusFilter,
+          sortBy: _sortBy,
+          minRating: _minRating,
+          onStatusChanged: (v) => setState(() {
+            _statusFilter = v;
+            _appsFuture = _loadApps();
+          }),
+          onSortChanged: (v) => setState(() {
+            _sortBy = v;
+            _appsFuture = _loadApps();
+          }),
+          onMinRatingChanged: (v) => setState(() {
+            _minRating = v;
+            _appsFuture = _loadApps();
+          }),
         ),
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount: applications.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, i) => _ApplicantCard(
-        application: Map<String, dynamic>.from(applications[i]),
-        onDecide: (status) => onDecide(applications[i]['id'] as int, status),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: FutureBuilder<List<dynamic>>(
+              future: _appsFuture,
+              builder: (_, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snap.hasError) {
+                  return ErrorView(message: snap.error.toString(), onRetry: _refresh);
+                }
+                final apps = snap.data ?? [];
+                if (apps.isEmpty) {
+                  return ListView(children: [
+                    const SizedBox(height: 80),
+                    Center(
+                      child: Text('אין מועמדים שעונים לסינון',
+                          style: GoogleFonts.heebo(color: FindlyColors.textSecondary)),
+                    ),
+                  ]);
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  itemCount: apps.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _ApplicantCard(
+                    application: Map<String, dynamic>.from(apps[i]),
+                    canRate: _eventEnded,
+                    onDecide: (status) => _decide(apps[i]['id'] as int, status),
+                    onRate: () => _rate(Map<String, dynamic>.from(apps[i])),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CapacityBanner extends StatelessWidget {
+  final Map<String, dynamic> capacity;
+  const _CapacityBanner({required this.capacity});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = capacity['state'] as String? ?? 'under';
+    final filled = capacity['total_filled'] as int? ?? 0;
+    final required = capacity['total_required'] as int? ?? 0;
+    final shifts = (capacity['shifts'] as List? ?? const []).length;
+    final (color, label) = switch (state) {
+      'met' => (FindlyColors.brandGreen, 'איוש מלא'),
+      'over' => (FindlyColors.brandPurple, 'אויש מעל הנדרש'),
+      _ => (FindlyColors.pendingBlue, 'בתהליך איוש'),
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.group_rounded, color: color, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'איוש: $filled / $required ${required == 0 ? '(אין משמרות מוגדרות)' : ''} • $shifts משמרות',
+                style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.textPrimary),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+              child: Text(label,
+                  style: GoogleFonts.heebo(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  final String statusFilter;
+  final String sortBy;
+  final double? minRating;
+  final ValueChanged<String> onStatusChanged;
+  final ValueChanged<String> onSortChanged;
+  final ValueChanged<double?> onMinRatingChanged;
+  const _FilterBar({
+    required this.statusFilter,
+    required this.sortBy,
+    required this.minRating,
+    required this.onStatusChanged,
+    required this.onSortChanged,
+    required this.onMinRatingChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        reverse: true,
+        child: Row(children: [
+          _Pill(
+            label: 'סטטוס: ${_statusLabel(statusFilter)}',
+            onTap: () async {
+              final picked = await _showOptions(context, 'סטטוס', {
+                'all': 'הכל',
+                'pending': 'ממתין',
+                'approved': 'מאושרים',
+                'rejected': 'נדחים',
+              }, statusFilter);
+              if (picked != null) onStatusChanged(picked);
+            },
+          ),
+          const SizedBox(width: 8),
+          _Pill(
+            label: 'מיון: ${_sortLabel(sortBy)}',
+            onTap: () async {
+              final picked = await _showOptions(context, 'מיון לפי', {
+                'created_at': 'תאריך הגשה',
+                'price': 'מחיר',
+                'rating': 'דירוג',
+              }, sortBy);
+              if (picked != null) onSortChanged(picked);
+            },
+          ),
+          const SizedBox(width: 8),
+          _Pill(
+            label: minRating == null ? 'דירוג מינ׳: כולם' : 'דירוג מינ׳: ${minRating!.toStringAsFixed(0)}+',
+            onTap: () async {
+              final picked = await _showOptions<double?>(
+                context,
+                'דירוג מינימלי',
+                {null: 'כולם', 1.0: '1+', 2.0: '2+', 3.0: '3+', 4.0: '4+', 5.0: '5'},
+                minRating,
+              );
+              onMinRatingChanged(picked);
+            },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  String _statusLabel(String s) => switch (s) {
+        'pending' => 'ממתין',
+        'approved' => 'מאושרים',
+        'rejected' => 'נדחים',
+        _ => 'הכל',
+      };
+  String _sortLabel(String s) => switch (s) {
+        'price' => 'מחיר',
+        'rating' => 'דירוג',
+        _ => 'תאריך',
+      };
+
+  Future<T?> _showOptions<T>(
+    BuildContext context,
+    String title,
+    Map<T, String> options,
+    T currentValue,
+  ) {
+    return showModalBottomSheet<T>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(title, style: GoogleFonts.heebo(fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+            ...options.entries.map((e) => ListTile(
+                  title: Text(e.value),
+                  trailing: e.key == currentValue ? const Icon(Icons.check) : null,
+                  onTap: () => Navigator.pop(ctx, e.key),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _Pill({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(40),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(color: FindlyColors.brandPurple.withValues(alpha: 0.3)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: GoogleFonts.heebo(fontSize: 12, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 4),
+          const Icon(Icons.expand_more_rounded, size: 16),
+        ]),
+      ),
+    );
+  }
+}
+
+class _RateWorkerDialog extends StatefulWidget {
+  final Map<String, dynamic> application;
+  const _RateWorkerDialog({required this.application});
+
+  @override
+  State<_RateWorkerDialog> createState() => _RateWorkerDialogState();
+}
+
+class _RateWorkerDialogState extends State<_RateWorkerDialog> {
+  int _rating = 5;
+  final _commentCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (widget.application['applicant'] as Map<String, dynamic>?)?['full_name'] as String? ?? '';
+    return AlertDialog(
+      title: Text('דרג את $name'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (i) {
+              final filled = i < _rating;
+              return IconButton(
+                onPressed: () => setState(() => _rating = i + 1),
+                icon: Icon(
+                  filled ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: Colors.amber,
+                  size: 32,
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _commentCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'הערה (לא חובה)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ביטול')),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            (rating: _rating, comment: _commentCtrl.text.trim().isEmpty ? null : _commentCtrl.text.trim()),
+          ),
+          child: const Text('שמור דירוג'),
+        ),
+      ],
     );
   }
 }
@@ -367,7 +711,15 @@ class _ApplicantsTab extends StatelessWidget {
 class _ApplicantCard extends StatelessWidget {
   final Map<String, dynamic> application;
   final ValueChanged<String> onDecide;
-  const _ApplicantCard({required this.application, required this.onDecide});
+  final VoidCallback onRate;
+  /// True iff the event has ended — controls visibility of the "Rate" button.
+  final bool canRate;
+  const _ApplicantCard({
+    required this.application,
+    required this.onDecide,
+    required this.onRate,
+    required this.canRate,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -430,6 +782,7 @@ class _ApplicantCard extends StatelessWidget {
                   style: GoogleFonts.heebo(color: FindlyColors.brandGreen, fontWeight: FontWeight.w700, fontSize: 14)),
             ]),
           ],
+          _RatingRow(rating: application['worker_rating'] as Map<String, dynamic>?),
           if (status == 'pending') ...[
             const SizedBox(height: 12),
             Row(children: [
@@ -453,8 +806,53 @@ class _ApplicantCard extends StatelessWidget {
               ),
             ]),
           ],
+          if (status == 'approved' && canRate) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              icon: const Icon(Icons.star_rounded, size: 18),
+              label: const Text('דרג את העובד'),
+              onPressed: onRate,
+              style: FilledButton.styleFrom(
+                backgroundColor: FindlyColors.brandPurple,
+                minimumSize: const Size.fromHeight(40),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Inline row of stars + count, shown beneath the applicant header.
+/// `rating` is the `worker_rating: { avg, count }` payload the server
+/// adds to each application row.
+class _RatingRow extends StatelessWidget {
+  final Map<String, dynamic>? rating;
+  const _RatingRow({required this.rating});
+
+  @override
+  Widget build(BuildContext context) {
+    final avg = rating?['avg'];
+    final count = (rating?['count'] as int?) ?? 0;
+    if (avg == null) return const SizedBox.shrink();
+    final score = (avg as num).toDouble();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(children: [
+        ...List.generate(5, (i) {
+          if (score >= i + 1) {
+            return const Icon(Icons.star_rounded, color: Colors.amber, size: 16);
+          }
+          if (score > i) {
+            return const Icon(Icons.star_half_rounded, color: Colors.amber, size: 16);
+          }
+          return const Icon(Icons.star_outline_rounded, color: Colors.amber, size: 16);
+        }),
+        const SizedBox(width: 4),
+        Text('${score.toStringAsFixed(1)} (${count})',
+            style: GoogleFonts.heebo(fontSize: 12, color: FindlyColors.textSecondary)),
+      ]),
     );
   }
 }

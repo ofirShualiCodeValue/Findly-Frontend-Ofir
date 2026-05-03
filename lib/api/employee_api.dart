@@ -143,8 +143,33 @@ class EmployeeApi {
     return List<dynamic>.from(r.data['data']);
   }
 
-  static Future<void> cancelApplication(int id) async {
-    final r = await ApiClient.dio.delete('/v1/employee/applications/$id');
+  /// Cancels an application. Server returns 409 with errorCode
+  /// 'CANCELLATION_POLICY_LATE' when within 48 h of the shift; the UI
+  /// shows the policy popup and retries with `force: true`.
+  static Future<void> cancelApplication(int id, {bool force = false}) async {
+    final r = await ApiClient.dio.delete(
+      '/v1/employee/applications/$id',
+      queryParameters: force ? {'force': 'true'} : null,
+    );
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+  }
+
+  // ---------- Notifications inbox ----------
+
+  /// `type` filters to a single NotificationType (e.g. 'event_message'
+  /// for broadcast announcements only).
+  static Future<List<dynamic>> listNotifications({bool? unread, String? type}) async {
+    final r = await ApiClient.dio.get('/v1/employee/notifications', queryParameters: {
+      if (unread == true) 'unread': 'true',
+      if (type != null) 'type': type,
+      'page_size': 100,
+    });
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return List<dynamic>.from(r.data['data']);
+  }
+
+  static Future<void> markNotificationRead(int id) async {
+    final r = await ApiClient.dio.post('/v1/employee/notifications/$id/read');
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
   }
 
