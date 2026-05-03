@@ -5,6 +5,7 @@ import '../../api/client.dart';
 import '../../api/employee_api.dart';
 import '../../store/auth_store.dart';
 import '../../theme.dart';
+import '../../widgets/calendar_strip.dart';
 import '../../widgets/error_view.dart';
 import '../../widgets/gradient_background.dart';
 import 'profile_tab.dart';
@@ -53,6 +54,8 @@ class _HomeFeed extends StatefulWidget {
 class _HomeFeedState extends State<_HomeFeed> {
   // The segmented control's value: 'offers' or 'shifts'.
   String _segment = 'offers';
+  // Selected date for the calendar strip filter; null = no filter.
+  DateTime? _selectedDate;
   late Future<List<dynamic>> _future;
   // Map eventId -> application from the user's /applications endpoint, used
   // to overlay status badges on cards.
@@ -170,6 +173,22 @@ class _HomeFeedState extends State<_HomeFeed> {
           children: [
             _Header(),
             const SizedBox(height: 12),
+            CalendarStrip(
+              selectedDate: _selectedDate ?? DateUtils.dateOnly(DateTime.now()),
+              onDateSelected: (d) => setState(() {
+                final today = DateUtils.dateOnly(DateTime.now());
+                final picked = DateUtils.dateOnly(d);
+                // Tap the same date twice → clear the filter.
+                if (_selectedDate != null && DateUtils.isSameDay(_selectedDate!, picked)) {
+                  _selectedDate = null;
+                } else if (DateUtils.isSameDay(picked, today) && _selectedDate == null) {
+                  _selectedDate = picked;
+                } else {
+                  _selectedDate = picked;
+                }
+              }),
+            ),
+            const SizedBox(height: 12),
             _SegmentedTabs(
               value: _segment,
               onChanged: (v) {
@@ -192,15 +211,27 @@ class _HomeFeedState extends State<_HomeFeed> {
                     if (snap.hasError) {
                       return ErrorView(message: snap.error.toString(), onRetry: _refresh);
                     }
-                    final events = snap.data ?? [];
+                    final allEvents = snap.data ?? [];
+                    final events = _selectedDate == null
+                        ? allEvents
+                        : allEvents.where((e) {
+                            final start = DateTime.parse(e['start_at'] as String);
+                            return DateUtils.isSameDay(start, _selectedDate);
+                          }).toList();
                     if (events.isEmpty) {
+                      String message;
+                      if (_selectedDate != null) {
+                        message = 'אין אירועים בתאריך הזה';
+                      } else if (_segment == 'offers') {
+                        message = 'אין כרגע הצעות עבודה שמתאימות';
+                      } else {
+                        message = 'אין משמרות פעילות';
+                      }
                       return ListView(children: [
                         const SizedBox(height: 80),
                         Center(
                           child: Text(
-                            _segment == 'offers'
-                                ? 'אין כרגע הצעות עבודה שמתאימות'
-                                : 'אין משמרות פעילות',
+                            message,
                             style: const TextStyle(color: FindlyColors.textSecondary, fontSize: 16),
                           ),
                         ),
