@@ -34,7 +34,10 @@ const List<String> _venueSuggestions = [
 ];
 
 class CreateEventScreen extends StatefulWidget {
-  const CreateEventScreen({super.key});
+  /// Pre-fills the date picker with the day the employer was looking at on
+  /// the home calendar. They can still change it inside the form.
+  final DateTime? initialDate;
+  const CreateEventScreen({super.key, this.initialDate});
 
   @override
   State<CreateEventScreen> createState() => _CreateEventScreenState();
@@ -59,6 +62,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   @override
   void initState() {
     super.initState();
+    _date = widget.initialDate;
     _loadTaxonomies();
   }
 

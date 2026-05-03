@@ -34,6 +34,14 @@ class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
     await _eventsFuture;
   }
 
+  Future<void> _openCreateEvent(DateTime forDate) async {
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => CreateEventScreen(initialDate: forDate)),
+    );
+    if (created == true) _refresh();
+  }
+
   List<dynamic> _filterByDate(List<dynamic> events) {
     return events.where((e) {
       final start = DateTime.tryParse(e['start_at'] as String? ?? '');
@@ -78,32 +86,61 @@ class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
                     }
                     final all = snap.data ?? [];
                     final filtered = _filterByDate(all);
+                    final dayLabel = DateFormat('d בMMMM', 'he').format(_selectedDate);
                     if (filtered.isEmpty) {
                       return SliverFillRemaining(
                         hasScrollBody: false,
-                        child: EmptyState(
-                          icon: Icons.calendar_today_rounded,
-                          title: all.isEmpty ? 'אין אירועים עדיין' : 'אין אירועים בתאריך זה',
-                          subtitle: all.isEmpty
-                              ? 'צור אירוע ראשון בלחיצה על הכפתור למטה'
-                              : 'בחר תאריך אחר או צור אירוע חדש',
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              EmptyState(
+                                icon: Icons.calendar_today_rounded,
+                                title: all.isEmpty ? 'אין אירועים עדיין' : 'אין אירועים בתאריך זה',
+                                subtitle: all.isEmpty
+                                    ? 'התחל בלחיצה על הכפתור למטה'
+                                    : 'או בחר תאריך אחר',
+                              ),
+                              const SizedBox(height: 24),
+                              FilledButton.icon(
+                                icon: const Icon(Icons.add),
+                                label: Text('הוסף אירוע ל-$dayLabel'),
+                                onPressed: () => _openCreateEvent(_selectedDate),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     }
                     return SliverPadding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                       sliver: SliverList.separated(
-                        itemCount: filtered.length,
+                        itemCount: filtered.length + 1,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (_, i) => _EventCard(
-                          event: Map<String, dynamic>.from(filtered[i]),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => EventDetailsScreen(eventId: filtered[i]['id'] as int),
-                            ),
-                          ).then((_) => _refresh()),
-                        ),
+                        itemBuilder: (_, i) {
+                          if (i == filtered.length) {
+                            // Trailing CTA so the user can add another event
+                            // for the same day without scrolling for the FAB.
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.add),
+                                label: Text('הוסף אירוע נוסף ל-$dayLabel'),
+                                onPressed: () => _openCreateEvent(_selectedDate),
+                              ),
+                            );
+                          }
+                          return _EventCard(
+                            event: Map<String, dynamic>.from(filtered[i]),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => EventDetailsScreen(eventId: filtered[i]['id'] as int),
+                              ),
+                            ).then((_) => _refresh()),
+                          );
+                        },
                       ),
                     );
                   },
@@ -117,17 +154,11 @@ class _EmployerHomeScreenState extends State<EmployerHomeScreen> {
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: SizedBox(
-          width: 240,
+          width: 260,
           child: FilledButton.icon(
             icon: const Icon(Icons.add),
             label: const Text('יצירת אירוע חדש'),
-            onPressed: () async {
-              final created = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(builder: (_) => const CreateEventScreen()),
-              );
-              if (created == true) _refresh();
-            },
+            onPressed: () => _openCreateEvent(_selectedDate),
           ),
         ),
       ),
