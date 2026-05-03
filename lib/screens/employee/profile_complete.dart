@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -330,21 +331,28 @@ class _ProfileCompleteScreenState extends State<ProfileCompleteScreen> {
                 ),
               ),
               Expanded(
-                child: ListWheelScrollView.useDelegate(
-                  itemExtent: 36,
-                  controller: FixedExtentScrollController(initialItem: now - initial),
-                  onSelectedItemChanged: (i) => selected = now - i,
-                  childDelegate: ListWheelChildBuilderDelegate(
-                    builder: (_, i) {
-                      final y = now - i;
-                      if (y < 1900) return null;
-                      return Center(
-                        child: Text(
-                          y.toString(),
-                          style: GoogleFonts.heebo(fontSize: 18),
-                        ),
-                      );
-                    },
+                // Allow trackpad/mouse drag scrolling on Chrome web — by
+                // default ListWheelScrollView only accepts touch input.
+                child: ScrollConfiguration(
+                  behavior: const _AllPointerScrollBehavior(),
+                  child: ListWheelScrollView.useDelegate(
+                    itemExtent: 36,
+                    diameterRatio: 1.6,
+                    physics: const FixedExtentScrollPhysics(),
+                    controller: FixedExtentScrollController(initialItem: now - initial),
+                    onSelectedItemChanged: (i) => selected = now - i,
+                    childDelegate: ListWheelChildBuilderDelegate(
+                      builder: (_, i) {
+                        final y = now - i;
+                        if (y < 1900) return null;
+                        return Center(
+                          child: Text(
+                            y.toString(),
+                            style: GoogleFonts.heebo(fontSize: 18),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -697,6 +705,20 @@ class _BottomBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Lets ListWheelScrollView accept mouse drag on web/desktop, where the
+/// default ScrollBehavior only enables touch.
+class _AllPointerScrollBehavior extends MaterialScrollBehavior {
+  const _AllPointerScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
 }
 
 class _LabeledField extends StatelessWidget {
