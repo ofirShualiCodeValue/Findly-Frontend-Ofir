@@ -120,11 +120,11 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
         title: const Text('סטטוס עבודה'),
         children: [
           SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, 'freelancer'),
-            child: const Text('פרילנסר'),
+            onPressed: () => Navigator.pop(context, 'salaried'),
+            child: const Text('שכיר'),
           ),
           SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, 'self_employed'),
+            onPressed: () => Navigator.pop(context, 'freelancer'),
             child: const Text('עצמאי'),
           ),
         ],
@@ -305,9 +305,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   String _workStatusLabel(String? value) {
     switch (value) {
       case 'freelancer':
-        return 'פרילנסר';
-      case 'self_employed':
         return 'עצמאי';
+      case 'salaried':
+        return 'שכיר';
       default:
         return 'לא הוגדר';
     }
