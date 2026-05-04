@@ -9,6 +9,7 @@ import '../../widgets/confirm_modal.dart';
 import '../../widgets/error_view.dart';
 import '../../widgets/findly_alert.dart';
 import '../../widgets/gradient_background.dart';
+import 'worker_profile.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final int eventId;
@@ -422,6 +423,20 @@ class _ApplicantsTabState extends State<_ApplicantsTab> {
     }
   }
 
+  Future<void> _openProfile(int appId) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WorkerProfileScreen(
+          eventId: widget.eventId,
+          applicationId: appId,
+          canDecide: !_eventEnded,
+        ),
+      ),
+    );
+    if (changed == true) _refresh();
+  }
+
   Future<void> _rate(Map<String, dynamic> app) async {
     final result = await showDialog<({int rating, String? comment})>(
       context: context,
@@ -498,6 +513,7 @@ class _ApplicantsTabState extends State<_ApplicantsTab> {
                     canRate: _eventEnded,
                     onDecide: (status) => _decide(apps[i]['id'] as int, status),
                     onRate: () => _rate(Map<String, dynamic>.from(apps[i])),
+                    onOpen: () => _openProfile(apps[i]['id'] as int),
                   ),
                 );
               },
@@ -751,12 +767,16 @@ class _ApplicantCard extends StatelessWidget {
   final Map<String, dynamic> application;
   final ValueChanged<String> onDecide;
   final VoidCallback onRate;
+  /// Tapping anywhere on the card body (outside the buttons) opens the
+  /// worker's full profile so the employer can review before approving.
+  final VoidCallback onOpen;
   /// True iff the event has ended — controls visibility of the "Rate" button.
   final bool canRate;
   const _ApplicantCard({
     required this.application,
     required this.onDecide,
     required this.onRate,
+    required this.onOpen,
     required this.canRate,
   });
 
@@ -772,16 +792,24 @@ class _ApplicantCard extends StatelessWidget {
       _ => (FindlyColors.pendingBlue, 'ממתין'),
     };
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 0,
+      shadowColor: Colors.black.withValues(alpha: 0.05),
+      child: InkWell(
+        onTap: onOpen,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 16, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 16, offset: const Offset(0, 4))],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           Row(children: [
             CircleAvatar(
               backgroundColor: FindlyColors.brandPurple.withValues(alpha: 0.15),
@@ -858,6 +886,8 @@ class _ApplicantCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+        ),
       ),
     );
   }

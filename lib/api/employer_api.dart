@@ -1,3 +1,6 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
 import 'client.dart';
 
 class EmployerApi {
@@ -9,6 +12,30 @@ class EmployerApi {
 
   static Future<Map<String, dynamic>> patchProfile(Map<String, dynamic> body) async {
     final r = await ApiClient.dio.patch('/v1/employer/profile', data: body);
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
+  static Future<Map<String, dynamic>> setActivityAreas(List<int> areaIds) async {
+    final r = await ApiClient.dio.put('/v1/employer/profile/activity-areas',
+        data: {'area_ids': areaIds});
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
+  static Future<Map<String, dynamic>> setEventCategories(List<int> categoryIds) async {
+    final r = await ApiClient.dio.put('/v1/employer/profile/event-categories',
+        data: {'category_ids': categoryIds});
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
+  static Future<Map<String, dynamic>> uploadLogo(XFile file) async {
+    final MultipartFile mp = kIsWeb
+        ? MultipartFile.fromBytes(await file.readAsBytes(), filename: file.name)
+        : await MultipartFile.fromFile(file.path, filename: file.name);
+    final form = FormData.fromMap({'file': mp});
+    final r = await ApiClient.dio.post('/v1/employer/profile/logo', data: form);
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return Map<String, dynamic>.from(r.data['data']);
   }
@@ -43,6 +70,16 @@ class EmployerApi {
   static Future<void> cancelEvent(int id) async {
     final r = await ApiClient.dio.delete('/v1/employer/events/$id');
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
+  }
+
+  /// Full applicant profile + ratings history for the "worker profile"
+  /// modal the employer opens before approve/reject.
+  static Future<Map<String, dynamic>> getApplication(int eventId, int applicationId) async {
+    final r = await ApiClient.dio.get(
+      '/v1/employer/events/$eventId/applications/$applicationId',
+    );
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
   }
 
   /// `sortBy` is one of 'created_at' (default) | 'price' | 'rating'.

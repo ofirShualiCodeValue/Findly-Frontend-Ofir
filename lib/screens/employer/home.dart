@@ -225,20 +225,21 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Row(
         children: [
-          // Top-left icons (profile + notifications). Each has a red dot
-          // indicator badge per the Figma — non-functional dot for now,
-          // wire up unread counts later.
-          Builder(
-            builder: (ctx) => _CircleIconButton(
-              icon: Icons.person_rounded,
-              showBadge: true,
-              onPressed: () => Navigator.push(
-                ctx,
-                MaterialPageRoute(builder: (_) => const EmployerProfileScreen()),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ברוכים הבאים!',
+                style: GoogleFonts.heebo(fontSize: 24, fontWeight: FontWeight.w800, color: FindlyColors.textPrimary),
               ),
-            ),
+              const SizedBox(height: 2),
+              Text(
+                name.isEmpty ? '' : 'יום ${DateFormat('EEEE, d בMMMM', 'he').format(DateTime.now())}',
+                style: GoogleFonts.heebo(fontSize: 12, color: FindlyColors.textSecondary),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
+          const Spacer(),
           Builder(
             builder: (ctx) => _CircleIconButton(
               icon: Icons.notifications_rounded,
@@ -254,20 +255,16 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'ברוכים הבאים!',
-                style: GoogleFonts.heebo(fontSize: 24, fontWeight: FontWeight.w800, color: FindlyColors.textPrimary),
+          const SizedBox(width: 8),
+          Builder(
+            builder: (ctx) => _CircleIconButton(
+              icon: Icons.person_rounded,
+              showBadge: true,
+              onPressed: () => Navigator.push(
+                ctx,
+                MaterialPageRoute(builder: (_) => const EmployerProfileScreen()),
               ),
-              const SizedBox(height: 2),
-              Text(
-                name.isEmpty ? '' : 'יום ${DateFormat('EEEE, d בMMMM', 'he').format(DateTime.now())}',
-                style: GoogleFonts.heebo(fontSize: 12, color: FindlyColors.textSecondary),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -335,13 +332,13 @@ class _MonthLabel extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            DateFormat('MMMM yyyy', 'he').format(date),
-            style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.textSecondary, fontWeight: FontWeight.w600),
+            'היום',
+            style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.brandPurple, fontWeight: FontWeight.w600),
           ),
           const Spacer(),
           Text(
-            'היום',
-            style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.brandPurple, fontWeight: FontWeight.w600),
+            DateFormat('MMMM yyyy', 'he').format(date),
+            style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.textSecondary, fontWeight: FontWeight.w600),
           ),
         ],
       ),
