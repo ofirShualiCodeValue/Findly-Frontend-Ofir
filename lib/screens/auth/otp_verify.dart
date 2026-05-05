@@ -3,13 +3,16 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../api/auth_api.dart';
 import '../../api/client.dart';
 import '../../api/employee_api.dart';
+import '../../api/employer_api.dart';
 import '../../store/auth_store.dart';
 import '../../theme.dart';
 import '../../widgets/findly_logo.dart';
 import '../../widgets/gradient_background.dart';
 import '../employer/home.dart';
+import '../employer/profile_complete.dart' as employer;
 import '../employee/home.dart';
 import '../employee/profile_complete.dart';
+import 'register.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String phone;
@@ -46,6 +49,21 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     }
   }
 
+  /// Same idea as the employee path: if the employer never finished the
+  /// post-signup completion form, route them there instead of the home.
+  Future<Widget> _resolveEmployerDestination() async {
+    try {
+      final profile = await EmployerApi.getProfile();
+      final business = profile['business'] as Map<String, dynamic>?;
+      final isComplete = business?['is_complete'] == true;
+      return isComplete
+          ? const EmployerHomeScreen()
+          : const employer.EmployerProfileCompleteScreen();
+    } catch (_) {
+      return const employer.EmployerProfileCompleteScreen();
+    }
+  }
+
   Future<void> _verify() async {
     final code = _codeCtrl.text.trim();
     if (code.length < 4) {
@@ -58,18 +76,36 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     });
     try {
       final result = await AuthApi.verifySms(phone: widget.phone, code: code);
+      if (!mounted) return;
+
+      // Phone is unknown to the system → push the register screen with the
+      // OTP-bound registration_token so the user can finish signup.
+      if (result['is_new_user'] == true) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => RegisterScreen(
+              phone: widget.phone,
+              registrationToken: result['registration_token'] as String,
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Existing user — full session.
       await authStore.setSession(
         result['token'] as String,
         Map<String, dynamic>.from(result['user']),
       );
       if (!mounted) return;
 
-      // Employees with an incomplete profile are routed to the completion
-      // form instead of the home feed (the matcher needs all fields set).
+      // Both roles have a completion form — if the profile isn't fully
+      // set up, we route there instead of dropping the user on the home
+      // feed.
       Widget destination = const SizedBox.shrink();
       switch (authStore.role) {
         case 'employer':
-          destination = const EmployerHomeScreen();
+          destination = await _resolveEmployerDestination();
           break;
         case 'employee':
           destination = await _resolveEmployeeDestination();

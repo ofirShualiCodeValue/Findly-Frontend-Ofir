@@ -16,6 +16,34 @@ class EmployerApi {
     return Map<String, dynamic>.from(r.data['data']);
   }
 
+  /// First-time post-signup completion form (single-shot). Required for
+  /// the system to flip `business.is_complete` to true.
+  static Future<Map<String, dynamic>> completeRegistration({
+    String? fullName,
+    required String businessName,
+    String? ownerName,
+    String? vatNumber,
+    String? contactEmail,
+    required String address,
+    required List<int> activityAreaIds,
+    required List<int> eventCategoryIds,
+    required List<int> industryIds,
+  }) async {
+    final r = await ApiClient.dio.post('/v1/employer/profile/complete', data: {
+      if (fullName != null) 'full_name': fullName,
+      'business_name': businessName,
+      if (ownerName != null) 'owner_name': ownerName,
+      if (vatNumber != null) 'vat_number': vatNumber,
+      if (contactEmail != null) 'contact_email': contactEmail,
+      'address': address,
+      'activity_area_ids': activityAreaIds,
+      'event_category_ids': eventCategoryIds,
+      'industry_ids': industryIds,
+    });
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
   static Future<Map<String, dynamic>> setActivityAreas(List<int> areaIds) async {
     final r = await ApiClient.dio.put('/v1/employer/profile/activity-areas',
         data: {'area_ids': areaIds});

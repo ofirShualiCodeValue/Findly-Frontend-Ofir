@@ -3,11 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../api/auth_api.dart';
 import '../../api/client.dart';
 import '../../theme.dart';
-import '../../widgets/findly_alert.dart';
 import '../../widgets/findly_logo.dart';
 import '../../widgets/gradient_background.dart';
 import 'otp_verify.dart';
 
+/// Step 1 of the auth flow: just collect the phone number. The backend
+/// no longer requires role / name here — those are filled later in the
+/// register screen, only when the phone turns out to be new.
 class PhoneEntryScreen extends StatefulWidget {
   const PhoneEntryScreen({super.key});
 
@@ -17,8 +19,6 @@ class PhoneEntryScreen extends StatefulWidget {
 
 class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
   final _phoneCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
-  String _role = 'employer';
   bool _loading = false;
   String? _error;
 
@@ -33,11 +33,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
       _error = null;
     });
     try {
-      final result = await AuthApi.requestSms(
-        phone: phone,
-        role: _role,
-        fullName: _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
-      );
+      final result = await AuthApi.requestSms(phone: phone);
       if (!mounted) return;
       Navigator.push(
         context,
@@ -49,41 +45,11 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
         ),
       );
     } on ApiException catch (e) {
-      if (e.errorCode == 'ROLE_MISMATCH') {
-        if (mounted) await _showRoleMismatchDialog(e.data);
-      } else {
-        setState(() => _error = e.message);
-      }
-    } catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
       setState(() => _error = 'שגיאת רשת — בדוק שהשרת רץ');
     } finally {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  /// Backend rejects when an existing phone is registered with a different
-  /// role than the one selected here. Show an explanation and offer to
-  /// switch the picker so the user can continue logging in with the right
-  /// role on this phone.
-  Future<void> _showRoleMismatchDialog(Map<String, dynamic>? data) async {
-    final existing = data?['existing_role'] as String? ?? 'unknown';
-    final existingHe = existing == 'employer' ? 'מעסיק' : 'עובד';
-    final requestedHe = _role == 'employer' ? 'מעסיק' : 'עובד';
-    final picked = await showFindlyAlert(
-      context,
-      badge: FindlyAlertBadge.icon(Icons.swap_horiz_rounded),
-      title: 'המספר רשום בתפקיד אחר',
-      message: 'מספר הטלפון הזה כבר רשום במערכת בתור $existingHe.\n'
-          'כדי להירשם בתור $requestedHe — צריך מספר טלפון אחר, '
-          'או למחוק את החשבון הקיים.',
-      actions: [
-        FindlyAlertAction(label: 'להתחבר בתור $existingHe'),
-        const FindlyAlertAction(label: 'ביטול', primary: false),
-      ],
-    );
-    if (picked == 0 && mounted) {
-      setState(() => _role = existing);
-      _request();
     }
   }
 
@@ -105,19 +71,34 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                     color: Colors.white.withValues(alpha: 0.95),
                     borderRadius: BorderRadius.circular(28),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8)),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
                     ],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('ברוכים הבאים',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.heebo(fontSize: 24, fontWeight: FontWeight.w700, color: FindlyColors.textPrimary)),
+                      Text(
+                        'ברוכים הבאים',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.heebo(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          color: FindlyColors.textPrimary,
+                        ),
+                      ),
                       const SizedBox(height: 4),
-                      Text('הזן את מספר הטלפון שלך כדי להתחיל',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.heebo(fontSize: 14, color: FindlyColors.textSecondary)),
+                      Text(
+                        'הזן את מספר הטלפון שלך כדי להתחיל',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.heebo(
+                          fontSize: 14,
+                          color: FindlyColors.textSecondary,
+                        ),
+                      ),
                       const SizedBox(height: 24),
                       TextField(
                         controller: _phoneCtrl,
@@ -128,23 +109,6 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                           prefixIcon: Icon(Icons.phone, size: 20),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _nameCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'שם מלא (להרשמה ראשונית)',
-                          prefixIcon: Icon(Icons.person, size: 20),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text('סוג חשבון',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.heebo(fontSize: 13, color: FindlyColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      _RolePicker(
-                        value: _role,
-                        onChanged: (v) => setState(() => _role = v),
-                      ),
                       const SizedBox(height: 20),
                       if (_error != null)
                         Container(
@@ -154,9 +118,11 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                             color: FindlyColors.warningRed.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text(_error!,
-                              style: const TextStyle(color: FindlyColors.warningRed),
-                              textAlign: TextAlign.center),
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(color: FindlyColors.warningRed),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       FilledButton(
                         onPressed: _loading ? null : _request,
@@ -164,71 +130,24 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
                             : const Text('שליחת קוד אימות'),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('הקוד יוצג ב-DEV mode בתשובת ה-API',
-                    style: GoogleFonts.heebo(fontSize: 11, color: Colors.white70)),
+                Text(
+                  'הקוד יוצג ב-DEV mode בתשובת ה-API',
+                  style: GoogleFonts.heebo(fontSize: 11, color: Colors.white70),
+                ),
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RolePicker extends StatelessWidget {
-  final String value;
-  final ValueChanged<String> onChanged;
-  const _RolePicker({required this.value, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F3F8),
-        borderRadius: BorderRadius.circular(40),
-      ),
-      child: Row(
-        children: [
-          Expanded(child: _option('employer', 'מעסיק', Icons.business)),
-          Expanded(child: _option('employee', 'עובד', Icons.work_outline)),
-        ],
-      ),
-    );
-  }
-
-  Widget _option(String v, String label, IconData icon) {
-    final selected = value == v;
-    return GestureDetector(
-      onTap: () => onChanged(v),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(36),
-          boxShadow: selected
-              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))]
-              : null,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 18, color: selected ? FindlyColors.brandPurple : FindlyColors.textSecondary),
-            const SizedBox(width: 6),
-            Text(label,
-                style: GoogleFonts.heebo(
-                  fontWeight: FontWeight.w600,
-                  color: selected ? FindlyColors.textPrimary : FindlyColors.textSecondary,
-                )),
-          ],
         ),
       ),
     );

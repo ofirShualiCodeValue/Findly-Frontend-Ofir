@@ -369,9 +369,16 @@ class _CardHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 4),
+      padding: const EdgeInsets.fromLTRB(12, 14, 16, 4),
       child: Row(
         children: [
+          // Title first (rightmost in RTL) so the bold heading sits on the
+          // start side, matching how Hebrew websites lead the eye.
+          Text(
+            title,
+            style: GoogleFonts.heebo(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          const Spacer(),
           TextButton(
             onPressed: onEdit,
             style: TextButton.styleFrom(
@@ -384,11 +391,6 @@ class _CardHeader extends StatelessWidget {
               'עריכה',
               style: GoogleFonts.heebo(fontSize: 13, fontWeight: FontWeight.w600),
             ),
-          ),
-          const Spacer(),
-          Text(
-            title,
-            style: GoogleFonts.heebo(fontSize: 15, fontWeight: FontWeight.w700),
           ),
         ],
       ),

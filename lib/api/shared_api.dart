@@ -22,4 +22,12 @@ class SharedApi {
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return List<dynamic>.from(r.data['data']);
   }
+
+  /// Worker certifications taxonomy (תעודת עוסק, רישיון נהיגה, …).
+  /// Used by the certifications multi-select on the employee profile.
+  static Future<List<dynamic>> certifications() async {
+    final r = await ApiClient.dio.get('/v1/shared/certifications');
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return List<dynamic>.from(r.data['data']);
+  }
 }

@@ -93,6 +93,32 @@ class EmployeeApi {
     return Map<String, dynamic>.from(r.data['data']);
   }
 
+  /// Replaces the employee's certifications (m:n).
+  static Future<Map<String, dynamic>> setCertifications(List<int> certificationIds) async {
+    final r = await ApiClient.dio.put(
+      '/v1/employee/profile/certifications',
+      data: {'certification_ids': certificationIds},
+    );
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
+  /// Worker's own rating summary + recent feedback. Powers the stars
+  /// beneath the avatar on the profile screen and the rating-history card.
+  static Future<Map<String, dynamic>> getMyRating() async {
+    final r = await ApiClient.dio.get('/v1/employee/profile/rating');
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
+  /// Monthly earnings rollup: current_month, previous_month, total. Sums
+  /// proposed_amount over approved applications, bucketed by event start.
+  static Future<Map<String, dynamic>> getEarnings() async {
+    final r = await ApiClient.dio.get('/v1/employee/profile/earnings');
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
   // ---------- Events ----------
 
   /// Employee feed. `tab` is either 'offers' (matched, not applied yet) or
