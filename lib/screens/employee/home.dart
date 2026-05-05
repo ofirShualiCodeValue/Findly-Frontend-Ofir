@@ -748,17 +748,37 @@ class _ReportShiftTimesDialogState extends State<_ReportShiftTimesDialog> {
   String? _error;
 
   Future<void> _pickTime(bool isStart) async {
-    final base = isStart ? _startAt : _endAt;
     final picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(base),
+      initialTime: TimeOfDay.fromDateTime(isStart ? _startAt : _endAt),
     );
     if (picked == null) return;
     setState(() {
-      // Keep the original date — only the time-of-day changes.
-      final next = DateTime(base.year, base.month, base.day, picked.hour, picked.minute);
-      if (isStart) _startAt = next; else _endAt = next;
       _error = null;
+      if (isStart) {
+        // Replace start's time on its existing date.
+        _startAt = DateTime(
+          _startAt.year, _startAt.month, _startAt.day,
+          picked.hour, picked.minute,
+        );
+        // If end is now ≤ start, push end forward 24h until it isn't —
+        // covers shifts that cross midnight (start 22:00 → end 02:00).
+        while (!_endAt.isAfter(_startAt)) {
+          _endAt = _endAt.add(const Duration(hours: 24));
+        }
+      } else {
+        // End is anchored on start's DATE plus the chosen time. If that
+        // would land on/before start, advance one day so the duration
+        // stays positive (overnight shift).
+        var candidate = DateTime(
+          _startAt.year, _startAt.month, _startAt.day,
+          picked.hour, picked.minute,
+        );
+        if (!candidate.isAfter(_startAt)) {
+          candidate = candidate.add(const Duration(hours: 24));
+        }
+        _endAt = candidate;
+      }
     });
   }
 

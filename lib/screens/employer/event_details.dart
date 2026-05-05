@@ -1092,16 +1092,31 @@ class _EditHoursDialogState extends State<_EditHoursDialog> {
   String? _error;
 
   Future<void> _pickTime(bool isStart) async {
-    final base = isStart ? _startAt : _endAt;
     final picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(base),
+      initialTime: TimeOfDay.fromDateTime(isStart ? _startAt : _endAt),
     );
     if (picked == null) return;
     setState(() {
-      final next = DateTime(base.year, base.month, base.day, picked.hour, picked.minute);
-      if (isStart) _startAt = next; else _endAt = next;
       _error = null;
+      if (isStart) {
+        _startAt = DateTime(
+          _startAt.year, _startAt.month, _startAt.day,
+          picked.hour, picked.minute,
+        );
+        while (!_endAt.isAfter(_startAt)) {
+          _endAt = _endAt.add(const Duration(hours: 24));
+        }
+      } else {
+        var candidate = DateTime(
+          _startAt.year, _startAt.month, _startAt.day,
+          picked.hour, picked.minute,
+        );
+        if (!candidate.isAfter(_startAt)) {
+          candidate = candidate.add(const Duration(hours: 24));
+        }
+        _endAt = candidate;
+      }
     });
   }
 
