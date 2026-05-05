@@ -199,12 +199,21 @@ class EmployeeApi {
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
   }
 
+  /// Worker reports the actual time range they worked.
   /// Available only after the shift's end_at has passed and the application
-  /// is approved. Backend moves hours_status to 'pending_approval'.
-  static Future<Map<String, dynamic>> reportHours(int applicationId, double hours) async {
+  /// is approved. Backend computes total hours from the range, moves
+  /// hours_status to 'pending_approval'.
+  static Future<Map<String, dynamic>> reportShiftTimes(
+    int applicationId, {
+    required DateTime startAt,
+    required DateTime endAt,
+  }) async {
     final r = await ApiClient.dio.post(
       '/v1/employee/applications/$applicationId/report-hours',
-      data: {'hours': hours},
+      data: {
+        'start_at': startAt.toUtc().toIso8601String(),
+        'end_at': endAt.toUtc().toIso8601String(),
+      },
     );
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return Map<String, dynamic>.from(r.data['data']);

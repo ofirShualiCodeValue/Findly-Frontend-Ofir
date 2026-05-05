@@ -455,6 +455,45 @@ class _ApplicantsTabState extends State<_ApplicantsTab> {
     }
   }
 
+  /// Open the time-range picker pre-filled with what the worker reported,
+  /// then approve with the employer's edited times. Used when the worker
+  /// reported the wrong times (e.g. forgot to count overtime).
+  Future<void> _editAndApproveHours(Map<String, dynamic> application) async {
+    final reportedStart = application['reported_start_at'] as String?;
+    final reportedEnd = application['reported_end_at'] as String?;
+    if (reportedStart == null || reportedEnd == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('העובד עוד לא דיווח שעות')),
+      );
+      return;
+    }
+    final result = await showDialog<({DateTime startAt, DateTime endAt})>(
+      context: context,
+      builder: (_) => _EditHoursDialog(
+        initialStart: DateTime.parse(reportedStart).toLocal(),
+        initialEnd: DateTime.parse(reportedEnd).toLocal(),
+      ),
+    );
+    if (result == null) return;
+    try {
+      await EmployerApi.decideHours(
+        widget.eventId,
+        application['id'] as int,
+        status: 'approved',
+        startAt: result.startAt,
+        endAt: result.endAt,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('השעות עודכנו ואושרו')),
+        );
+      }
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _openProfile(int appId) async {
     final changed = await Navigator.push<bool>(
       context,
@@ -545,6 +584,7 @@ class _ApplicantsTabState extends State<_ApplicantsTab> {
                     canRate: _eventEnded,
                     onDecide: (status) => _decide(apps[i]['id'] as int, status),
                     onDecideHours: (status) => _decideHours(apps[i]['id'] as int, status),
+                    onEditHours: () => _editAndApproveHours(Map<String, dynamic>.from(apps[i])),
                     onRate: () => _rate(Map<String, dynamic>.from(apps[i])),
                     onOpen: () => _openProfile(apps[i]['id'] as int),
                   ),
@@ -802,6 +842,9 @@ class _ApplicantCard extends StatelessWidget {
   /// Called with 'approved' or 'rejected' when the employer decides on the
   /// worker's reported hours. Only invoked while hours_status == pending_approval.
   final ValueChanged<String> onDecideHours;
+  /// Opens an edit dialog pre-filled with the worker's reported times,
+  /// then approves with the employer's correction.
+  final VoidCallback onEditHours;
   final VoidCallback onRate;
   /// Tapping anywhere on the card body (outside the buttons) opens the
   /// worker's full profile so the employer can review before approving.
@@ -812,6 +855,7 @@ class _ApplicantCard extends StatelessWidget {
     required this.application,
     required this.onDecide,
     required this.onDecideHours,
+    required this.onEditHours,
     required this.onRate,
     required this.onOpen,
     required this.canRate,
@@ -887,7 +931,11 @@ class _ApplicantCard extends StatelessWidget {
             ]),
           ],
           _RatingRow(rating: application['worker_rating'] as Map<String, dynamic>?),
-          _HoursRow(application: application, onDecideHours: onDecideHours),
+          _HoursRow(
+            application: application,
+            onDecideHours: onDecideHours,
+            onEditHours: onEditHours,
+          ),
           if (status == 'pending') ...[
             const SizedBox(height: 12),
             Row(children: [
@@ -931,19 +979,30 @@ class _ApplicantCard extends StatelessWidget {
   }
 }
 
-/// Reported-hours strip — shows the worker's submission and, when
-/// `hours_status == pending_approval`, gives the employer approve/reject
-/// shortcuts. Uses the same payload fields the server's
-/// ApplicationBaseEntity exposes: reported_hours, hours_status.
+/// Reported-hours strip — shows the worker's reported time range and,
+/// when `hours_status == pending_approval`, gives the employer three
+/// shortcuts: approve as-is, edit-and-approve, or reject.
 class _HoursRow extends StatelessWidget {
   final Map<String, dynamic> application;
   final ValueChanged<String> onDecideHours;
-  const _HoursRow({required this.application, required this.onDecideHours});
+  final VoidCallback onEditHours;
+  const _HoursRow({
+    required this.application,
+    required this.onDecideHours,
+    required this.onEditHours,
+  });
+
+  String _fmt(String iso) {
+    final t = DateTime.parse(iso).toLocal();
+    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
     final hoursStatus = application['hours_status'] as String?;
     final reported = application['reported_hours'];
+    final start = application['reported_start_at'] as String?;
+    final end = application['reported_end_at'] as String?;
     if (hoursStatus == null || hoursStatus == 'not_reported') {
       return const SizedBox.shrink();
     }
@@ -955,6 +1014,10 @@ class _HoursRow extends StatelessWidget {
       _ => (FindlyColors.pendingBlue, Icons.schedule_rounded, 'ממתין לאישור'),
     };
 
+    final rangeText = (start != null && end != null)
+        ? '${_fmt(start)}–${_fmt(end)} ($reported שעות)'
+        : '$reported שעות';
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Column(
@@ -963,7 +1026,7 @@ class _HoursRow extends StatelessWidget {
           Row(children: [
             Icon(icon, size: 16, color: color),
             const SizedBox(width: 4),
-            Text('דיווח שעות: $reported  •  $label',
+            Text('דיווח שעות: $rangeText  •  $label',
                 style: GoogleFonts.heebo(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
           ]),
           if (hoursStatus == 'pending_approval') ...[
@@ -972,20 +1035,32 @@ class _HoursRow extends StatelessWidget {
               Expanded(
                 child: FilledButton.icon(
                   onPressed: () => onDecideHours('approved'),
-                  icon: const Icon(Icons.check_rounded, size: 16),
-                  label: const Text('אשר שעות'),
+                  icon: const Icon(Icons.check_rounded, size: 14),
+                  label: const Text('אשר', style: TextStyle(fontSize: 12)),
                   style: FilledButton.styleFrom(
                     backgroundColor: FindlyColors.brandGreen,
                     minimumSize: const Size(0, 36),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onEditHours,
+                  icon: const Icon(Icons.edit_rounded, size: 14),
+                  label: const Text('ערוך ואשר', style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: FindlyColors.brandPurple,
+                    minimumSize: const Size(0, 36),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => onDecideHours('rejected'),
-                  icon: const Icon(Icons.close_rounded, size: 16),
-                  label: const Text('דחה שעות'),
+                  icon: const Icon(Icons.close_rounded, size: 14),
+                  label: const Text('דחה', style: TextStyle(fontSize: 12)),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: FindlyColors.warningRed,
                     minimumSize: const Size(0, 36),
@@ -996,6 +1071,105 @@ class _HoursRow extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Two-time-picker dialog used by "ערוך ואשר". Pre-filled with whatever
+/// the worker reported. Same UX shape as the employee's report dialog.
+class _EditHoursDialog extends StatefulWidget {
+  final DateTime initialStart;
+  final DateTime initialEnd;
+  const _EditHoursDialog({required this.initialStart, required this.initialEnd});
+
+  @override
+  State<_EditHoursDialog> createState() => _EditHoursDialogState();
+}
+
+class _EditHoursDialogState extends State<_EditHoursDialog> {
+  late DateTime _startAt = widget.initialStart;
+  late DateTime _endAt = widget.initialEnd;
+  String? _error;
+
+  Future<void> _pickTime(bool isStart) async {
+    final base = isStart ? _startAt : _endAt;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (picked == null) return;
+    setState(() {
+      final next = DateTime(base.year, base.month, base.day, picked.hour, picked.minute);
+      if (isStart) _startAt = next; else _endAt = next;
+      _error = null;
+    });
+  }
+
+  String _fmt(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  double get _hours => _endAt.difference(_startAt).inMinutes / 60.0;
+
+  void _submit() {
+    if (!_endAt.isAfter(_startAt)) {
+      setState(() => _error = 'שעת סיום חייבת להיות אחרי שעת התחלה');
+      return;
+    }
+    if (_hours > 24) {
+      setState(() => _error = 'משך השיפט לא יכול לעלות על 24 שעות');
+      return;
+    }
+    Navigator.of(context).pop((startAt: _startAt, endAt: _endAt));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('עריכת שעות העובד'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'שמירה תאשר את השעות החדשות במקום מה שהעובד דיווח.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.play_arrow_rounded),
+            title: const Text('שעת התחלה'),
+            subtitle: Text(_fmt(_startAt)),
+            trailing: const Icon(Icons.edit_rounded, size: 18),
+            onTap: () => _pickTime(true),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.stop_rounded),
+            title: const Text('שעת סיום'),
+            subtitle: Text(_fmt(_endAt)),
+            trailing: const Icon(Icons.edit_rounded, size: 18),
+            onTap: () => _pickTime(false),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'סה״כ: ${_hours.toStringAsFixed(2)} שעות',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ביטול')),
+        FilledButton(
+          onPressed: _submit,
+          style: FilledButton.styleFrom(backgroundColor: FindlyColors.brandGreen),
+          child: const Text('שמור ואשר'),
+        ),
+      ],
     );
   }
 }

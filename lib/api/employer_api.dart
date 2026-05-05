@@ -205,18 +205,26 @@ class EmployerApi {
     return Map<String, dynamic>.from(r.data['data']);
   }
 
-  /// Approve / reject the worker's reported hours.
-  /// Allowed only when `hours_status == 'pending_approval'` — the worker
-  /// has reported hours and is waiting for the employer's decision.
-  /// `status` must be 'approved' or 'rejected'.
+  /// Approve / edit-and-approve / reject the worker's reported time range.
+  ///   - status='approved' alone → keep what the worker reported.
+  ///   - status='approved' + startAt + endAt → overwrite the time range
+  ///     with the employer's correction, then approve.
+  ///   - status='rejected' → reject; the worker can re-submit.
+  /// Allowed only when `hours_status == 'pending_approval'`.
   static Future<Map<String, dynamic>> decideHours(
     int eventId,
     int applicationId, {
     required String status,
+    DateTime? startAt,
+    DateTime? endAt,
   }) async {
     final r = await ApiClient.dio.patch(
       '/v1/employer/events/$eventId/applications/$applicationId/hours',
-      data: {'status': status},
+      data: {
+        'status': status,
+        if (startAt != null) 'start_at': startAt.toUtc().toIso8601String(),
+        if (endAt != null) 'end_at': endAt.toUtc().toIso8601String(),
+      },
     );
     if (r.statusCode != 200) throw ApiException.fromResponse(r);
     return Map<String, dynamic>.from(r.data['data']);

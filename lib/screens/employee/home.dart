@@ -253,30 +253,29 @@ class _HomeFeedState extends State<_HomeFeed> {
   }
 
   Future<void> _reportHours(Map<String, dynamic> app) async {
-    final hoursCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    // Prefill the pickers from the shift's scheduled times — workers usually
+    // come in on time, so the most common case is "tap submit". Workers who
+    // came late / left early adjust the times by a few minutes.
+    final event = app['event'] as Map<String, dynamic>?;
+    if (event == null) return;
+    final scheduledStart = DateTime.parse(event['start_at'] as String).toLocal();
+    final scheduledEnd = DateTime.parse(event['end_at'] as String).toLocal();
+
+    final result = await showDialog<({DateTime startAt, DateTime endAt})>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('דיווח שעות'),
-        content: TextField(
-          controller: hoursCtrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: 'שעות', border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('שלח')),
-        ],
+      builder: (_) => _ReportShiftTimesDialog(
+        scheduledStart: scheduledStart,
+        scheduledEnd: scheduledEnd,
       ),
     );
-    if (ok != true) return;
-    final hours = double.tryParse(hoursCtrl.text.trim());
-    if (hours == null || hours < 0 || hours > 24) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('הזן בין 0 ל-24')));
-      return;
-    }
+    if (result == null) return;
+
     try {
-      await EmployeeApi.reportHours(app['id'] as int, hours);
+      await EmployeeApi.reportShiftTimes(
+        app['id'] as int,
+        startAt: result.startAt,
+        endAt: result.endAt,
+      );
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('הדיווח נשלח')));
       _refresh();
     } on ApiException catch (e) {
@@ -724,4 +723,101 @@ class _StatusInfo {
   final String label;
   final Color color;
   _StatusInfo({required this.label, required this.color});
+}
+
+/// Two-time-picker dialog. Used by both the employee (to report) and —
+/// reused via copy of the same UX shape — by the employer (to edit before
+/// approving). Each picker preserves the DATE of the original shift
+/// timestamp it was seeded from, so end-on-the-next-day shifts (like a
+/// late-night wedding) keep working without a date picker.
+class _ReportShiftTimesDialog extends StatefulWidget {
+  final DateTime scheduledStart;
+  final DateTime scheduledEnd;
+  const _ReportShiftTimesDialog({
+    required this.scheduledStart,
+    required this.scheduledEnd,
+  });
+
+  @override
+  State<_ReportShiftTimesDialog> createState() => _ReportShiftTimesDialogState();
+}
+
+class _ReportShiftTimesDialogState extends State<_ReportShiftTimesDialog> {
+  late DateTime _startAt = widget.scheduledStart;
+  late DateTime _endAt = widget.scheduledEnd;
+  String? _error;
+
+  Future<void> _pickTime(bool isStart) async {
+    final base = isStart ? _startAt : _endAt;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (picked == null) return;
+    setState(() {
+      // Keep the original date — only the time-of-day changes.
+      final next = DateTime(base.year, base.month, base.day, picked.hour, picked.minute);
+      if (isStart) _startAt = next; else _endAt = next;
+      _error = null;
+    });
+  }
+
+  String _fmt(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  double get _hours => _endAt.difference(_startAt).inMinutes / 60.0;
+
+  void _submit() {
+    if (!_endAt.isAfter(_startAt)) {
+      setState(() => _error = 'שעת סיום חייבת להיות אחרי שעת התחלה');
+      return;
+    }
+    if (_hours > 24) {
+      setState(() => _error = 'משך השיפט לא יכול לעלות על 24 שעות');
+      return;
+    }
+    Navigator.of(context).pop((startAt: _startAt, endAt: _endAt));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('דיווח שעות'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.play_arrow_rounded),
+            title: const Text('שעת התחלה'),
+            subtitle: Text(_fmt(_startAt)),
+            trailing: const Icon(Icons.edit_rounded, size: 18),
+            onTap: () => _pickTime(true),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.stop_rounded),
+            title: const Text('שעת סיום'),
+            subtitle: Text(_fmt(_endAt)),
+            trailing: const Icon(Icons.edit_rounded, size: 18),
+            onTap: () => _pickTime(false),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'סה״כ: ${_hours.toStringAsFixed(2)} שעות',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ביטול')),
+        FilledButton(onPressed: _submit, child: const Text('שלח')),
+      ],
+    );
+  }
 }
