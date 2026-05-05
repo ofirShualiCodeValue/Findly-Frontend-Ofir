@@ -423,6 +423,38 @@ class _ApplicantsTabState extends State<_ApplicantsTab> {
     }
   }
 
+  Future<void> _decideHours(int appId, String status) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(status == 'approved' ? 'אישור שעות' : 'דחיית שעות'),
+        content: Text(status == 'approved'
+            ? 'לאשר את השעות שדיווח העובד? אישור הופך אותן לסכום החיוב הסופי.'
+            : 'לדחות את השעות שדיווח העובד? העובד יוכל לדווח שוב.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: status == 'approved' ? FindlyColors.brandGreen : FindlyColors.warningRed,
+            ),
+            child: Text(status == 'approved' ? 'אשר' : 'דחה'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await EmployerApi.decideHours(widget.eventId, appId, status: status);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(status == 'approved' ? 'השעות אושרו' : 'השעות נדחו')),
+      );
+      _refresh();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _openProfile(int appId) async {
     final changed = await Navigator.push<bool>(
       context,
@@ -512,6 +544,7 @@ class _ApplicantsTabState extends State<_ApplicantsTab> {
                     application: Map<String, dynamic>.from(apps[i]),
                     canRate: _eventEnded,
                     onDecide: (status) => _decide(apps[i]['id'] as int, status),
+                    onDecideHours: (status) => _decideHours(apps[i]['id'] as int, status),
                     onRate: () => _rate(Map<String, dynamic>.from(apps[i])),
                     onOpen: () => _openProfile(apps[i]['id'] as int),
                   ),
@@ -766,6 +799,9 @@ class _RateWorkerDialogState extends State<_RateWorkerDialog> {
 class _ApplicantCard extends StatelessWidget {
   final Map<String, dynamic> application;
   final ValueChanged<String> onDecide;
+  /// Called with 'approved' or 'rejected' when the employer decides on the
+  /// worker's reported hours. Only invoked while hours_status == pending_approval.
+  final ValueChanged<String> onDecideHours;
   final VoidCallback onRate;
   /// Tapping anywhere on the card body (outside the buttons) opens the
   /// worker's full profile so the employer can review before approving.
@@ -775,6 +811,7 @@ class _ApplicantCard extends StatelessWidget {
   const _ApplicantCard({
     required this.application,
     required this.onDecide,
+    required this.onDecideHours,
     required this.onRate,
     required this.onOpen,
     required this.canRate,
@@ -850,6 +887,7 @@ class _ApplicantCard extends StatelessWidget {
             ]),
           ],
           _RatingRow(rating: application['worker_rating'] as Map<String, dynamic>?),
+          _HoursRow(application: application, onDecideHours: onDecideHours),
           if (status == 'pending') ...[
             const SizedBox(height: 12),
             Row(children: [
@@ -888,6 +926,75 @@ class _ApplicantCard extends StatelessWidget {
         ],
       ),
         ),
+      ),
+    );
+  }
+}
+
+/// Reported-hours strip — shows the worker's submission and, when
+/// `hours_status == pending_approval`, gives the employer approve/reject
+/// shortcuts. Uses the same payload fields the server's
+/// ApplicationBaseEntity exposes: reported_hours, hours_status.
+class _HoursRow extends StatelessWidget {
+  final Map<String, dynamic> application;
+  final ValueChanged<String> onDecideHours;
+  const _HoursRow({required this.application, required this.onDecideHours});
+
+  @override
+  Widget build(BuildContext context) {
+    final hoursStatus = application['hours_status'] as String?;
+    final reported = application['reported_hours'];
+    if (hoursStatus == null || hoursStatus == 'not_reported') {
+      return const SizedBox.shrink();
+    }
+    if (reported == null) return const SizedBox.shrink();
+
+    final (color, icon, label) = switch (hoursStatus) {
+      'approved' => (FindlyColors.brandGreen, Icons.check_circle_rounded, 'אושרו'),
+      'rejected' => (FindlyColors.warningRed, Icons.cancel_rounded, 'נדחו'),
+      _ => (FindlyColors.pendingBlue, Icons.schedule_rounded, 'ממתין לאישור'),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 4),
+            Text('דיווח שעות: $reported  •  $label',
+                style: GoogleFonts.heebo(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
+          ]),
+          if (hoursStatus == 'pending_approval') ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => onDecideHours('approved'),
+                  icon: const Icon(Icons.check_rounded, size: 16),
+                  label: const Text('אשר שעות'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: FindlyColors.brandGreen,
+                    minimumSize: const Size(0, 36),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => onDecideHours('rejected'),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('דחה שעות'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: FindlyColors.warningRed,
+                    minimumSize: const Size(0, 36),
+                  ),
+                ),
+              ),
+            ]),
+          ],
+        ],
       ),
     );
   }

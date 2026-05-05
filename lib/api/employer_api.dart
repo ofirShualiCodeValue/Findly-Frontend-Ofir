@@ -205,6 +205,23 @@ class EmployerApi {
     return Map<String, dynamic>.from(r.data['data']);
   }
 
+  /// Approve / reject the worker's reported hours.
+  /// Allowed only when `hours_status == 'pending_approval'` — the worker
+  /// has reported hours and is waiting for the employer's decision.
+  /// `status` must be 'approved' or 'rejected'.
+  static Future<Map<String, dynamic>> decideHours(
+    int eventId,
+    int applicationId, {
+    required String status,
+  }) async {
+    final r = await ApiClient.dio.patch(
+      '/v1/employer/events/$eventId/applications/$applicationId/hours',
+      data: {'status': status},
+    );
+    if (r.statusCode != 200) throw ApiException.fromResponse(r);
+    return Map<String, dynamic>.from(r.data['data']);
+  }
+
   static Future<Map<String, dynamic>> sendNotification(int eventId, String title, String? body) async {
     final r = await ApiClient.dio.post('/v1/employer/events/$eventId/notifications', data: {
       'title': title,
